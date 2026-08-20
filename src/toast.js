@@ -1,0 +1,68 @@
+/**
+ * Windows 10 原生 Toast：PowerShell 5.1 + WinRT ToastNotificationManager。
+ * 标题/XML 走环境变量，脚本走 -EncodedCommand，避开代码页和引号转义。
+ */
+import { spawn } from 'node:child_process'
+import { powershell51, xmlEscape } from './util.js'
+
+/** 读 $env:DSH_ATTENTION_XML 并弹出 Toast。 */
+const TOAST_SCRIPT = `
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+$xmlText = [string]$env:DSH_ATTENTION_XML
+$aumid = [string]$env:DSH_ATTENTION_AUMID
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($xmlText)
+$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($aumid).Show($toast)
+`.trim()
+
+export function buildToastXml({ title, lines, launchUrl, actions, sound }) {
+  const textNodes = [title, ...(lines ?? [])]
+    .filter((line) => String(line ?? '').trim() !== '')
+    .slice(0, 3)
+    .map((line) => `<text>${xmlEscape(line)}</text>`)
+    .join('')
+
+  const actionNodes = (actions ?? []).slice(0, 5).map((action) => (
+    `<action content="${xmlEscape(action.label)}" activationType="protocol" arguments="${xmlEscape(action.url)}"/>`
+  )).join('')
+
+  const actionsBlock = actionNodes ? `<actions>${actionNodes}</actions>` : ''
+  const audio = sound
+    ? `<audio src="${xmlEscape(sound)}"/>`
+    : '<audio silent="true"/>'
+  const launch = launchUrl
+    ? ` activationType="protocol" launch="${xmlEscape(launchUrl)}"`
+    : ''
+
+  return `<toast${launch} duration="long" scenario="reminder"><visual><binding template="ToastGeneric">${textNodes}</binding></visual>${actionsBlock}${audio}</toast>`
+}
+
+export function fireToast(ctx, cfg, xml) {
+  if (process.platform !== 'win32') return
+  const ps = cfg.powershellPath || powershell51()
+  const encoded = Buffer.from(TOAST_SCRIPT, 'utf16le').toString('base64')
+  let child
+  try {
+    child = spawn(
+      ps,
+      ['-NoProfile', '-STA', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded],
+      {
+        env: {
+          ...process.env,
+          DSH_ATTENTION_XML: xml,
+          DSH_ATTENTION_AUMID: cfg.aumid,
+        },
+        windowsHide: true,
+        stdio: 'ignore',
+      },
+    )
+  } catch (error) {
+    ctx.logger?.warn?.(`dsh-attention: 无法启动通知进程: ${String(error)}`)
+    return
+  }
+  child.on('error', (error) => {
+    ctx.logger?.warn?.(`dsh-attention: 通知进程错误: ${String(error)}`)
+  })
+}

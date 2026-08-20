@@ -1,0 +1,63 @@
+{
+  "name": "dsh-attention",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 插件：审批/提问时弹出可操作的 Windows Toast，并在浏览器标签休眠后唤醒重连，避免提权卡片卡住",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "toast",
+    "notification",
+    "approval",
+    "windows"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/Gaq152/dsh-attention#readme",
+  "bugs": {
+    "url": "https://github.com/Gaq152/dsh-attention/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gaq152/dsh-attention.git"
+  },
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./client/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/smoke.mjs",
+    "check": "node --check src/index.js && node --check src/toast.js && node --check src/util.js && node --check client/client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

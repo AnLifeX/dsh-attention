@@ -1,0 +1,13 @@
+# dsh-attention bundle。
+# 安装: dsh plugin --profile web add <本目录>
+- insert:
+    - id: dsh-attention
+      name: dsh-attention
+      config:
+        enabled: true
+        rootsOnly: true
+        notifyApproval: true
+        notifyQuestion: true
+        webUrl: http://127.0.0.1:3080
+        hiddenReloadMs: 8000
+        cooldownMs: 1500
