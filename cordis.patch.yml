@@ -11,6 +11,7 @@
         notifyIdle: true
         notifyStyle: custom
         notifyTimeoutSec: 30
+        openSessionMode: reuse
         webUrl: http://127.0.0.1:3080
         hiddenReloadMs: 8000
         cooldownMs: 1500

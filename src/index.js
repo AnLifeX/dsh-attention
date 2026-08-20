@@ -14,10 +14,10 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildToastXml, fireToast } from './toast.js'
-import { focusExistingArgs, handlerScriptPath, protocolUri, registerProtocol } from './protocol.js'
+import { protocolUri, registerProtocol } from './protocol.js'
 import { pickUiFields, readUiOverlay, sanitizeUiPatch, writeUiOverlay } from './persist.js'
 import { renderReplyHtml } from './ui-page.js'
-import { choiceWindowPath, drainInbox, removePending, writePending } from './inbox.js'
+import { choiceWindowPath, drainInbox, removePending, writeFocusState, writePending } from './inbox.js'
 import {
   DEFAULT_AUMID,
   DEFAULT_WEB_URL,
@@ -28,6 +28,7 @@ import {
   DEFAULT_SOUND,
   notifyStyleOf,
   notifyTimeoutSecOf,
+  openSessionModeOf,
   questionToastActions,
   soundOf,
   powershell51,
@@ -47,6 +48,7 @@ const DEFAULT_CONFIG = {
   notifyIdle: true,
   notifyStyle: 'custom',
   notifyTimeoutSec: 30,
+  openSessionMode: 'reuse',
   focusAfterReply: false,
   sound: DEFAULT_SOUND,
   webUrl: DEFAULT_WEB_URL,
@@ -68,6 +70,7 @@ export function normalizeConfig(config) {
   cfg.notifyIdle = asBool(cfg.notifyIdle, true)
   cfg.notifyStyle = notifyStyleOf(cfg.notifyStyle)
   cfg.notifyTimeoutSec = notifyTimeoutSecOf(cfg.notifyTimeoutSec)
+  cfg.openSessionMode = openSessionModeOf(cfg.openSessionMode)
   cfg.focusAfterReply = asBool(cfg.focusAfterReply, false)
   cfg.cooldownMs = Math.max(0, Math.floor(Number(cfg.cooldownMs) || 0))
   cfg.hiddenReloadMs = Math.max(0, Math.floor(Number(cfg.hiddenReloadMs) || 0))
@@ -112,9 +115,10 @@ function htmlPage(title, body) {
   return `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="font-family:sans-serif;padding:24px">${body}</body>`
 }
 
-/** Toast 的 http 回退：不要 window.close() 把人送回错标签，把这个标签变成 dsh。 */
-function htmlOpenSession(webUrl, sessionId) {
+/** Toast 的 http 回退。reuse 尽量关掉多余标签并切到已有窗口；new 就留在这次打开的标签里。 */
+function htmlOpenSession(webUrl, sessionId, mode = 'reuse') {
   const dest = sessionFocusUrl(webUrl, sessionId)
+  const reuse = mode !== 'new'
   return `<!doctype html><meta charset="utf-8"><title>dsh</title>
 <body style="font-family:sans-serif;padding:24px">
 <p>正在打开会话…</p>
@@ -122,12 +126,17 @@ function htmlOpenSession(webUrl, sessionId) {
 (function(){
   var dest = ${JSON.stringify(dest)};
   var sid = ${JSON.stringify(String(sessionId ?? ''))};
+  var reuse = ${reuse ? 'true' : 'false'};
   var name = "dsh-web";
   try {
     var ch = new BroadcastChannel("dsh-attention");
     ch.postMessage({ type: "focus", sessionId: sid });
     ch.close();
   } catch (e) {}
+  if (!reuse) {
+    location.replace(dest);
+    return;
+  }
   var w = null;
   try { w = window.open("", name); } catch (e) {}
 			if (w && w !== window) {
@@ -235,6 +244,7 @@ export function apply(ctx, config = {}) {
   const runningBySession = new Map()
   const muxAbort = new AbortController()
   let lastUiFocusedAt = 0
+  let lastUiTitle = ''
   const pendingFocus = { sessionId: null, until: 0 }
 
   const remember = (record) => {
@@ -292,6 +302,21 @@ export function apply(ctx, config = {}) {
     missing: '还有选项没选。',
     done: '已提交',
     expired: '这条已经失效。',
+    focusMiss: '找不到已打开的 dsh 窗口。请先让浏览器停在 dsh 那个标签上。',
+  })
+
+  const choicePending = (token, sessionId, extra = {}) => ({
+    token,
+    timeoutSec: cfg.notifyTimeoutSec,
+    webUrl: cfg.webUrl,
+    openUrl: sessionFocusUrl(cfg.webUrl, sessionId),
+    openSessionMode: cfg.openSessionMode,
+    reuseSession: cfg.openSessionMode !== 'new',
+    playSound: Boolean(cfg.sound),
+    windowTitle: lastUiTitle,
+    appTitle: 'DeepSeek Harness',
+    labels: choiceLabels(),
+    ...extra,
   })
 
   const openChoiceWindow = (token) => {
@@ -312,27 +337,6 @@ export function apply(ctx, config = {}) {
       )
     } catch (error) {
       ctx.logger?.warn?.(`dsh-attention: 无法打开选择窗: ${String(error)}`)
-    }
-  }
-
-  const focusExistingWindow = (sessionId) => {
-    if (process.platform !== 'win32') return
-    const ps = cfg.powershellPath || powershell51()
-    try {
-      spawn(
-        ps,
-        [
-          '-NoProfile',
-          '-STA',
-          '-WindowStyle', 'Hidden',
-          '-ExecutionPolicy', 'Bypass',
-          '-File', handlerScriptPath(),
-          ...focusExistingArgs(cfg.webUrl, sessionId),
-        ],
-        { windowsHide: true, stdio: 'ignore' },
-      )
-    } catch (error) {
-      ctx.logger?.warn?.(`dsh-attention: 无法前置已有窗口: ${String(error)}`)
     }
   }
 
@@ -424,17 +428,12 @@ export function apply(ctx, config = {}) {
       ])
       return
     }
-    writePending(token, {
-      token,
+    writePending(token, choicePending(token, payload.sessionId, {
       kind: 'approval',
       session: clip(who, 22),
       heading: '需要审批',
       sub: why ? `${what} — ${why}` : what,
-      timeoutSec: cfg.notifyTimeoutSec,
-      webUrl: cfg.webUrl,
-      playSound: Boolean(cfg.sound),
-      labels: choiceLabels(),
-    })
+    }))
     openChoiceWindow(token)
   }
 
@@ -472,17 +471,12 @@ export function apply(ctx, config = {}) {
       ])
       return
     }
-    writePending(token, {
-      token,
+    writePending(token, choicePending(token, payload.sessionId, {
       kind: 'question',
       session: clip(who, 22),
       heading: prompt,
       questions,
-      timeoutSec: cfg.notifyTimeoutSec,
-      webUrl: cfg.webUrl,
-      playSound: Boolean(cfg.sound),
-      labels: choiceLabels(),
-    })
+    }))
     openChoiceWindow(token)
   }
 
@@ -509,16 +503,11 @@ export function apply(ctx, config = {}) {
       ])
       return
     }
-    writePending(token, {
-      token,
+    writePending(token, choicePending(token, sessionId, {
       kind: 'idle',
       session: clip(who, 22),
       heading: '会话已结束',
-      timeoutSec: cfg.notifyTimeoutSec,
-      webUrl: cfg.webUrl,
-      playSound: Boolean(cfg.sound),
-      labels: choiceLabels(),
-    })
+    }))
     openChoiceWindow(token)
   }
 
@@ -715,10 +704,7 @@ export function apply(ctx, config = {}) {
           text: job.text,
         }).then((result) => {
           if (!result?.ok) ctx.logger?.warn?.(`dsh-attention: inbox ${action} ${result?.error ?? 'failed'}`)
-          else {
-            ctx.logger?.info?.(`dsh-attention: inbox ${action} ok`)
-            if (result.focus && result.sessionId) focusExistingWindow(result.sessionId)
-          }
+          else ctx.logger?.info?.(`dsh-attention: inbox ${action} ok`)
         }).catch((error) => {
           ctx.logger?.warn?.(`dsh-attention: inbox ${String(error)}`)
         })
@@ -821,6 +807,10 @@ export function apply(ctx, config = {}) {
         if (body.focused === true) lastUiFocusedAt = Date.now()
         else lastUiFocusedAt = 0
         const focusedSession = typeof body.sessionId === 'string' ? body.sessionId : ''
+        if (typeof body.title === 'string' && body.title.trim()) {
+          lastUiTitle = body.title.trim()
+          writeFocusState({ title: lastUiTitle, sessionId: focusedSession, at: Date.now() })
+        }
         if (focusedSession && focusedSession === currentFocus()) {
           pendingFocus.sessionId = null
           pendingFocus.until = 0
@@ -943,7 +933,7 @@ export function apply(ctx, config = {}) {
             action: 'open',
             focus: true,
             sessionId: result.sessionId,
-          }, htmlOpenSession(cfg.webUrl, result.sessionId))
+          }, htmlOpenSession(cfg.webUrl, result.sessionId, cfg.openSessionMode))
           return
         }
 

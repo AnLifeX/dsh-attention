@@ -24,15 +24,26 @@ function Write-ActLog([string]$Line) {
   } catch {}
 }
 
-function Get-WebUrl {
+function Get-HandlerConfig {
   $configPath = Join-Path $env:USERPROFILE '.dsh\dsh-attention-handler.json'
   if (Test-Path $configPath) {
     try {
-      $json = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
-      if ($json.webUrl) { return ([string]$json.webUrl).TrimEnd('/') }
+      return Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
     } catch {}
   }
+  return $null
+}
+
+function Get-WebUrl {
+  $json = Get-HandlerConfig
+  if ($json -and $json.webUrl) { return ([string]$json.webUrl).TrimEnd('/') }
   return 'http://127.0.0.1:3080'
+}
+
+function Get-OpenSessionMode {
+  $json = Get-HandlerConfig
+  if ($json -and [string]$json.openSessionMode -eq 'new') { return 'new' }
+  return 'reuse'
 }
 
 function Get-QueryMap([string]$Raw) {
@@ -87,12 +98,25 @@ function Focus-DshWindow([string]$WebUrl, [string]$OpenUrl, [switch]$ReuseOnly) 
   try { $hostHint = ([Uri]$WebUrl).Authority } catch {}
   $port = Get-ListenPort $WebUrl
   $titlePat = 'DeepSeek|Harness|\bdsh\b|' + [regex]::Escape($hostHint) + '|localhost:' + [regex]::Escape([string]$port)
+  $needles = New-Object System.Collections.ArrayList
+  try {
+    $focusFile = Join-Path $env:USERPROFILE '.dsh\dsh-attention-work\ui-focus.json'
+    if (Test-Path -LiteralPath $focusFile) {
+      $focus = Get-Content -LiteralPath $focusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+      $text = ([string]$focus.title).Trim()
+      if ($text) { [void]$needles.Add($text) }
+    }
+  } catch {}
 
   foreach ($proc in Get-CandidateWindows) {
     $title = [string]$proc.MainWindowTitle
-    if ($title -and ($title -match $titlePat)) {
-      if (Focus-ProcessWindow $proc) { return $true }
+    if (-not $title) { continue }
+    $hit = $false
+    foreach ($n in $needles) {
+      if ($n -and $title.Contains($n)) { $hit = $true; break }
     }
+    if (-not $hit -and $title -match $titlePat) { $hit = $true }
+    if ($hit -and (Focus-ProcessWindow $proc)) { return $true }
   }
 
   try {
@@ -222,6 +246,15 @@ if ($result -and $result.sessionId) {
   $openUrl = $webUrl.TrimEnd('/') + '/#dsh-attention=' + [Uri]::EscapeDataString([string]$result.sessionId)
 }
 
-if ($wantFocus) { Focus-DshWindow $webUrl $openUrl | Out-Null }
+$mode = Get-OpenSessionMode
+if ($wantFocus) {
+  if ($mode -eq 'new') {
+    Write-ActLog ('open-new url=' + $openUrl)
+    Start-Process $openUrl | Out-Null
+  } else {
+    Write-ActLog ('open-reuse url=' + $openUrl)
+    Focus-DshWindow $webUrl $openUrl -ReuseOnly | Out-Null
+  }
+}
 if (-not $result -and $action -ne 'open' -and $action) { exit 1 }
 exit 0

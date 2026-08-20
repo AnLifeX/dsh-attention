@@ -12,6 +12,7 @@ import {
   buildQuestionAnswers,
   notifyStyleOf,
   notifyTimeoutSecOf,
+  openSessionModeOf,
   sessionFocusUrl,
   parseFocusHash,
   soundOf,
@@ -162,6 +163,7 @@ test('normalizeConfig fills defaults', () => {
   assert.equal(cfg.focusAfterReply, false)
   assert.equal(cfg.notifyIdle, true)
   assert.equal(cfg.notifyStyle, 'custom')
+  assert.equal(cfg.openSessionMode, 'reuse')
   assert.equal(cfg.notifyTimeoutSec, 30)
 })
 
@@ -184,6 +186,14 @@ test('normalizeConfig keeps sound off as empty string', () => {
   assert.equal(publicConfig(normalizeConfig({ sound: '' })).soundEnabled, false)
   assert.equal(normalizeConfig({}).sound, 'ms-winsoundevent:Notification.Default')
   assert.equal(publicConfig(normalizeConfig({})).soundEnabled, true)
+})
+
+test('normalizeConfig parses openSessionMode', () => {
+  assert.equal(openSessionModeOf('new'), 'new')
+  assert.equal(openSessionModeOf('reuse'), 'reuse')
+  assert.equal(openSessionModeOf('other'), 'reuse')
+  assert.equal(normalizeConfig({}).openSessionMode, 'reuse')
+  assert.equal(normalizeConfig({ openSessionMode: 'new' }).openSessionMode, 'new')
 })
 
 test('normalizeConfig parses notifyStyle', () => {
@@ -217,6 +227,7 @@ test('inbox parser keeps custom answers', async () => {
 test('sanitizeUiPatch drops empty and unknown fields', () => {
   assert.deepEqual(sanitizeUiPatch({}), {})
   assert.deepEqual(sanitizeUiPatch({ notifyStyle: 'system', ignored: 1 }), { notifyStyle: 'system' })
+  assert.deepEqual(sanitizeUiPatch({ openSessionMode: 'new' }), { openSessionMode: 'new' })
   assert.deepEqual(sanitizeUiPatch({ soundEnabled: false, enabled: undefined }), { soundEnabled: false })
 })
 
@@ -236,6 +247,7 @@ test('publicConfig exposes UI fields and soundEnabled', () => {
     'notifyQuestion',
     'notifyStyle',
     'notifyTimeoutSec',
+    'openSessionMode',
     'rootsOnly',
     'sound',
     'webUrl',

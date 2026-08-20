@@ -56,6 +56,11 @@ export function notifyStyleOf(value) {
   return value === 'system' ? 'system' : 'custom'
 }
 
+/** 回到会话：reuse=前置已有窗口，new=新开。 */
+export function openSessionModeOf(value) {
+  return value === 'new' ? 'new' : 'reuse'
+}
+
 export const DEFAULT_SOUND = 'ms-winsoundevent:Notification.Default'
 
 /** 空字符串表示关掉提示音，不能再当成缺省写回默认铃声。 */

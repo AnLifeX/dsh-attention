@@ -71,7 +71,10 @@ function wscriptPath() {
 export function writeHandlerConfig(cfg) {
   const path = HANDLER_CONFIG_PATH()
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify({ webUrl: cfg.webUrl }, null, 2)}\n`)
+  writeFileSync(path, `${JSON.stringify({
+    webUrl: cfg.webUrl,
+    openSessionMode: cfg.openSessionMode === 'new' ? 'new' : 'reuse',
+  }, null, 2)}\n`)
   return path
 }
 
