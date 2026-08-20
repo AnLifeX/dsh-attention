@@ -11,11 +11,15 @@ import {
   questionToastMode,
   buildQuestionAnswers,
   notifyStyleOf,
+  notifyTimeoutSecOf,
+  sessionFocusUrl,
+  parseFocusHash,
+  soundOf,
   xmlEscape,
 } from '../src/util.js'
 import { normalizeConfig, publicConfig } from '../src/index.js'
 import { protocolUri, parseProtocolUri } from '../src/protocol.js'
-import { pickUiFields } from '../src/persist.js'
+import { pickUiFields, sanitizeUiPatch } from '../src/persist.js'
 
 test('xmlEscape covers markup', () => {
   assert.equal(xmlEscape(`a&b<c>"'`), 'a&amp;b&lt;c&gt;&quot;&apos;')
@@ -80,6 +84,22 @@ test('toast xml contains protocol actions', () => {
   assert.equal(xml.includes('http://'), false)
 })
 
+test('timed toast drops reminder so it can auto-hide', () => {
+  const timed = buildToastXml({ title: 'dsh', timeoutSec: 30 })
+  assert.equal(timed.includes('scenario="reminder"'), false)
+  assert.match(timed, /duration="long"/)
+  const brief = buildToastXml({ title: 'dsh', timeoutSec: 5 })
+  assert.match(brief, /duration="short"/)
+  const sticky = buildToastXml({ title: 'dsh', timeoutSec: 0 })
+  assert.match(sticky, /scenario="reminder"/)
+})
+
+test('sessionFocusUrl puts the session id in the hash', () => {
+  assert.equal(sessionFocusUrl('http://127.0.0.1:3080/', 'abc'), 'http://127.0.0.1:3080/#dsh-attention=abc')
+  assert.equal(parseFocusHash('#dsh-attention=abc'), 'abc')
+  assert.equal(parseFocusHash(''), '')
+})
+
 test('system toast may use http only as the open-session fallback', () => {
   const xml = buildToastXml({
     title: 'dsh · 需要审批',
@@ -107,6 +127,27 @@ test('question toast falls back to compose for multi-select', () => {
   ), [{ id: 'q1', selected: ['Yes'] }])
 })
 
+test('buildQuestionAnswers keeps custom on multi-select', () => {
+  assert.deepEqual(buildQuestionAnswers(
+    [{ id: 'q1', multiSelect: true, options: [{ label: 'A' }, { label: 'B' }] }],
+    { questionId: 'q1', selected: ['A'], custom: '  extra  ' },
+  ), [{ id: 'q1', selected: ['A'], custom: 'extra' }])
+  assert.deepEqual(buildQuestionAnswers(
+    [{ id: 'q1', options: [{ label: 'A' }] }],
+    { questionId: 'q1', selected: ['A'], custom: 'other' },
+  ), [{ id: 'q1', selected: [], custom: 'other' }])
+})
+
+test('focusExistingArgs never opens a browser url', async () => {
+  const { focusExistingArgs } = await import('../src/protocol.js')
+  const args = focusExistingArgs('http://127.0.0.1:3080', 'session-abc')
+  assert.ok(args.includes('-FocusExisting'))
+  assert.ok(args.includes('-ReuseOnly'))
+  assert.ok(args.includes('-WebUrl'))
+  assert.equal(args.includes('-Uri'), false)
+  assert.equal(args.some((item) => /act\?/.test(String(item))), false)
+})
+
 test('normalizeConfig keeps enabled false', () => {
   assert.equal(normalizeConfig({ enabled: false }).enabled, false)
   assert.equal(publicConfig(normalizeConfig({ enabled: false })).enabled, false)
@@ -121,6 +162,28 @@ test('normalizeConfig fills defaults', () => {
   assert.equal(cfg.focusAfterReply, false)
   assert.equal(cfg.notifyIdle, true)
   assert.equal(cfg.notifyStyle, 'custom')
+  assert.equal(cfg.notifyTimeoutSec, 30)
+})
+
+test('normalizeConfig parses notifyTimeoutSec', () => {
+  assert.equal(notifyTimeoutSecOf(undefined), 30)
+  assert.equal(notifyTimeoutSecOf(0), 0)
+  assert.equal(notifyTimeoutSecOf(12.9), 12)
+  assert.equal(notifyTimeoutSecOf(999999), 86400)
+  assert.equal(normalizeConfig({}).notifyTimeoutSec, 30)
+  assert.equal(normalizeConfig({ notifyTimeoutSec: 0 }).notifyTimeoutSec, 0)
+  assert.equal(normalizeConfig({ notifyTimeoutSec: '45' }).notifyTimeoutSec, 45)
+})
+
+test('normalizeConfig keeps sound off as empty string', () => {
+  assert.equal(soundOf(''), '')
+  assert.equal(soundOf(false), '')
+  assert.equal(soundOf(null), '')
+  assert.equal(normalizeConfig({ sound: '' }).sound, '')
+  assert.equal(normalizeConfig({ sound: false }).sound, '')
+  assert.equal(publicConfig(normalizeConfig({ sound: '' })).soundEnabled, false)
+  assert.equal(normalizeConfig({}).sound, 'ms-winsoundevent:Notification.Default')
+  assert.equal(publicConfig(normalizeConfig({})).soundEnabled, true)
 })
 
 test('normalizeConfig parses notifyStyle', () => {
@@ -144,6 +207,19 @@ test('inbox parser skips blank and bad lines', async () => {
   ])
 })
 
+test('inbox parser keeps custom answers', async () => {
+  const { parseInboxText } = await import('../src/inbox.js')
+  assert.deepEqual(parseInboxText('{"t":"abc","a":"answer","answers":[{"id":"q1","selected":["A"],"custom":"extra"}]}'), [
+    { t: 'abc', a: 'answer', answers: [{ id: 'q1', selected: ['A'], custom: 'extra' }] },
+  ])
+})
+
+test('sanitizeUiPatch drops empty and unknown fields', () => {
+  assert.deepEqual(sanitizeUiPatch({}), {})
+  assert.deepEqual(sanitizeUiPatch({ notifyStyle: 'system', ignored: 1 }), { notifyStyle: 'system' })
+  assert.deepEqual(sanitizeUiPatch({ soundEnabled: false, enabled: undefined }), { soundEnabled: false })
+})
+
 test('publicConfig exposes UI fields and soundEnabled', () => {
   const cfg = normalizeConfig({ sound: false, focusAfterReply: true })
   const pub = publicConfig(cfg)
@@ -159,6 +235,7 @@ test('publicConfig exposes UI fields and soundEnabled', () => {
     'notifyIdle',
     'notifyQuestion',
     'notifyStyle',
+    'notifyTimeoutSec',
     'rootsOnly',
     'sound',
     'webUrl',

@@ -18,6 +18,13 @@ export function protocolUri(token, action) {
   return `${PROTOCOL}://do/${encodeURIComponent(token)}/${encodeURIComponent(action)}`
 }
 
+/** 只前置已有 dsh 窗口，不走浏览器、不新开标签。 */
+export function focusExistingArgs(webUrl, sessionId) {
+  const args = ['-FocusExisting', '-ReuseOnly', '-WebUrl', String(webUrl || 'http://127.0.0.1:3080')]
+  if (sessionId) args.push('-SessionId', String(sessionId))
+  return args
+}
+
 export function parseProtocolUri(raw) {
   const text = String(raw ?? '').trim().replace(/^"+|"+$/g, '')
   const stripped = text.replace(/^dsh-attention:(\/\/)?/i, '')

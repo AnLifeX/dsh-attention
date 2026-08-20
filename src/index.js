@@ -14,8 +14,8 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildToastXml, fireToast } from './toast.js'
-import { protocolUri, registerProtocol } from './protocol.js'
-import { pickUiFields, readUiOverlay, writeUiOverlay } from './persist.js'
+import { focusExistingArgs, handlerScriptPath, protocolUri, registerProtocol } from './protocol.js'
+import { pickUiFields, readUiOverlay, sanitizeUiPatch, writeUiOverlay } from './persist.js'
 import { renderReplyHtml } from './ui-page.js'
 import { choiceWindowPath, drainInbox, removePending, writePending } from './inbox.js'
 import {
@@ -25,10 +25,14 @@ import {
   clip,
   isLoopbackAddress,
   isLoopbackHost,
+  DEFAULT_SOUND,
   notifyStyleOf,
+  notifyTimeoutSecOf,
   questionToastActions,
+  soundOf,
   powershell51,
   buildQuestionAnswers,
+  sessionFocusUrl,
   shortSessionId,
   trimSlash,
 } from './util.js'
@@ -42,8 +46,9 @@ const DEFAULT_CONFIG = {
   notifyQuestion: true,
   notifyIdle: true,
   notifyStyle: 'custom',
+  notifyTimeoutSec: 30,
   focusAfterReply: false,
-  sound: 'ms-winsoundevent:Notification.Default',
+  sound: DEFAULT_SOUND,
   webUrl: DEFAULT_WEB_URL,
   aumid: DEFAULT_AUMID,
   powershellPath: undefined,
@@ -62,12 +67,13 @@ export function normalizeConfig(config) {
   cfg.notifyQuestion = asBool(cfg.notifyQuestion, true)
   cfg.notifyIdle = asBool(cfg.notifyIdle, true)
   cfg.notifyStyle = notifyStyleOf(cfg.notifyStyle)
+  cfg.notifyTimeoutSec = notifyTimeoutSecOf(cfg.notifyTimeoutSec)
   cfg.focusAfterReply = asBool(cfg.focusAfterReply, false)
   cfg.cooldownMs = Math.max(0, Math.floor(Number(cfg.cooldownMs) || 0))
   cfg.hiddenReloadMs = Math.max(0, Math.floor(Number(cfg.hiddenReloadMs) || 0))
   cfg.presenceStaleMs = Math.max(1000, Math.floor(Number(cfg.presenceStaleMs) || DEFAULT_CONFIG.presenceStaleMs))
   cfg.webUrl = trimSlash(cfg.webUrl || DEFAULT_WEB_URL)
-  cfg.sound = cfg.sound === false || cfg.sound === null ? '' : (cfg.sound || DEFAULT_CONFIG.sound)
+  cfg.sound = soundOf(cfg.sound, DEFAULT_CONFIG.sound)
   return cfg
 }
 
@@ -104,6 +110,45 @@ function wantsJson(req) {
 
 function htmlPage(title, body) {
   return `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="font-family:sans-serif;padding:24px">${body}</body>`
+}
+
+/** Toast 的 http 回退：不要 window.close() 把人送回错标签，把这个标签变成 dsh。 */
+function htmlOpenSession(webUrl, sessionId) {
+  const dest = sessionFocusUrl(webUrl, sessionId)
+  return `<!doctype html><meta charset="utf-8"><title>dsh</title>
+<body style="font-family:sans-serif;padding:24px">
+<p>正在打开会话…</p>
+<script>
+(function(){
+  var dest = ${JSON.stringify(dest)};
+  var sid = ${JSON.stringify(String(sessionId ?? ''))};
+  var name = "dsh-web";
+  try {
+    var ch = new BroadcastChannel("dsh-attention");
+    ch.postMessage({ type: "focus", sessionId: sid });
+    ch.close();
+  } catch (e) {}
+  var w = null;
+  try { w = window.open("", name); } catch (e) {}
+			if (w && w !== window) {
+    try {
+      var href = String(w.location.href || "");
+      if (href && href !== "about:blank") {
+        try { w.location.hash = "dsh-attention=" + encodeURIComponent(sid); } catch (e) {}
+        try { w.focus(); } catch (e) {}
+        setTimeout(function(){ try { window.close(); } catch (e) {} }, 200);
+        return;
+      }
+      w.location.replace(dest);
+      try { w.focus(); } catch (e) {}
+      setTimeout(function(){ try { window.close(); } catch (e) {} }, 200);
+      return;
+    } catch (e) {}
+  }
+  location.replace(dest);
+})();
+</script>
+</body>`
 }
 
 function sendJson(res, status, data) {
@@ -241,6 +286,8 @@ export function apply(ctx, config = {}) {
     allow: '允许',
     reject: '拒绝',
     placeholder: '下一步想让它做什么…',
+    customPlaceholder: '输入你的答案',
+    openSession: '回到会话',
     empty: '先写一句再发送。',
     missing: '还有选项没选。',
     done: '已提交',
@@ -268,12 +315,34 @@ export function apply(ctx, config = {}) {
     }
   }
 
+  const focusExistingWindow = (sessionId) => {
+    if (process.platform !== 'win32') return
+    const ps = cfg.powershellPath || powershell51()
+    try {
+      spawn(
+        ps,
+        [
+          '-NoProfile',
+          '-STA',
+          '-WindowStyle', 'Hidden',
+          '-ExecutionPolicy', 'Bypass',
+          '-File', handlerScriptPath(),
+          ...focusExistingArgs(cfg.webUrl, sessionId),
+        ],
+        { windowsHide: true, stdio: 'ignore' },
+      )
+    } catch (error) {
+      ctx.logger?.warn?.(`dsh-attention: 无法前置已有窗口: ${String(error)}`)
+    }
+  }
+
   const fireSystemToast = (token, title, lines) => {
     const xml = buildToastXml({
       title,
       lines,
       launchUrl: openUrl(token),
       sound: cfg.sound,
+      timeoutSec: cfg.notifyTimeoutSec,
       ...toastChrome(),
       actions: [
         { label: '打开会话', url: httpOpenUrl(token) },
@@ -318,11 +387,7 @@ export function apply(ctx, config = {}) {
     return pendingFocus.sessionId
   }
 
-  const shouldFocusAfter = (action) => {
-    if (action === 'open') return true
-    if (action === 'send') return false
-    return cfg.focusAfterReply
-  }
+  const shouldFocusAfter = (action) => action === 'open'
 
   const showApprovalToast = (envelope) => {
     if (!cfg.enabled || !cfg.notifyApproval || uiFocused()) return
@@ -365,6 +430,9 @@ export function apply(ctx, config = {}) {
       session: clip(who, 22),
       heading: '需要审批',
       sub: why ? `${what} — ${why}` : what,
+      timeoutSec: cfg.notifyTimeoutSec,
+      webUrl: cfg.webUrl,
+      playSound: Boolean(cfg.sound),
       labels: choiceLabels(),
     })
     openChoiceWindow(token)
@@ -410,6 +478,9 @@ export function apply(ctx, config = {}) {
       session: clip(who, 22),
       heading: prompt,
       questions,
+      timeoutSec: cfg.notifyTimeoutSec,
+      webUrl: cfg.webUrl,
+      playSound: Boolean(cfg.sound),
       labels: choiceLabels(),
     })
     openChoiceWindow(token)
@@ -443,6 +514,9 @@ export function apply(ctx, config = {}) {
       kind: 'idle',
       session: clip(who, 22),
       heading: '会话已结束',
+      timeoutSec: cfg.notifyTimeoutSec,
+      webUrl: cfg.webUrl,
+      playSound: Boolean(cfg.sound),
       labels: choiceLabels(),
     })
     openChoiceWindow(token)
@@ -641,7 +715,10 @@ export function apply(ctx, config = {}) {
           text: job.text,
         }).then((result) => {
           if (!result?.ok) ctx.logger?.warn?.(`dsh-attention: inbox ${action} ${result?.error ?? 'failed'}`)
-          else ctx.logger?.info?.(`dsh-attention: inbox ${action} ok`)
+          else {
+            ctx.logger?.info?.(`dsh-attention: inbox ${action} ok`)
+            if (result.focus && result.sessionId) focusExistingWindow(result.sessionId)
+          }
         }).catch((error) => {
           ctx.logger?.warn?.(`dsh-attention: inbox ${String(error)}`)
         })
@@ -674,9 +751,14 @@ export function apply(ctx, config = {}) {
         }
         if (rejectUnlessLoopback(req, res)) return
         try {
-          const patch = await readJsonBody(req)
+          const patch = sanitizeUiPatch(await readJsonBody(req))
+          if (Object.keys(patch).length === 0) {
+            sendJson(res, 400, { ok: false, error: 'empty-patch' })
+            return
+          }
           if (Object.hasOwn(patch, 'soundEnabled')) {
-            patch.sound = patch.soundEnabled === false ? '' : (DEFAULT_CONFIG.sound)
+            patch.sound = patch.soundEnabled === false ? '' : (soundOf(cfg.sound, '') || DEFAULT_CONFIG.sound)
+            delete patch.soundEnabled
           }
           const next = normalizeConfig({ ...cfg, ...patch })
           Object.assign(cfg, next)
@@ -861,7 +943,7 @@ export function apply(ctx, config = {}) {
             action: 'open',
             focus: true,
             sessionId: result.sessionId,
-          }, htmlPage('提醒', '<p>请使用原来的 dsh 窗口继续。可以关掉这个标签。</p><script>setTimeout(function(){try{window.close()}catch(e){}},400)</script>'))
+          }, htmlOpenSession(cfg.webUrl, result.sessionId))
           return
         }
 

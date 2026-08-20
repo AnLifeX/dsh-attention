@@ -30,8 +30,6 @@ window.__ModuleLoader__.load({
 			nav: "提醒",
 			cardNotify: "通知",
 			cardNotifyDesc: "什么时候提醒，以及用系统卡片还是自制卡片。",
-			cardClick: "点击后行为",
-			cardClickDesc: "自制卡片提交后要不要切回 dsh。系统卡片点击本身就会回到会话。",
 			cardWake: "休眠唤醒",
 			cardWakeDesc: "标签被冻住后再回来时，是否强制刷新把卡片重放出来。",
 			enabled: "启用通知",
@@ -39,21 +37,20 @@ window.__ModuleLoader__.load({
 			notifyStyle: "卡片样式",
 			notifyStyleHint: "二选一，不会同时弹两种。",
 			styleSystem: "系统通知卡片",
-			styleSystemHint: "只支持点一下回到会话：优先前置已有窗口并打开该对话。点通知没反应时，用卡片上的「打开会话」（可能会新开标签）。不能在通知里选择、回复或提权。",
+			styleSystemHint: "只支持点一下回到会话。点通知本体走自定义协议，尽量前置已有窗口。没反应时用「打开会话」：会打开 dsh 并切到那条会话（可能是新标签，不再闪一下就关）。不能在通知里选择、回复或提权。",
 			styleCustom: "自制卡片",
-			styleCustomHint: "右下角窗口。支持单选、多选、提权允许/拒绝，以及一轮结束后写下一步。",
+			styleCustomHint: "右下角窗口。支持单选、多选、自定义输入、提权允许/拒绝，以及一轮结束后写下一步。卡片上的「回到会话」会切到已有页面。",
 			notifyApproval: "提权审批",
 			notifyQuestion: "提问 / 选择",
 			notifyIdle: "一轮对话结束",
 			rootsOnly: "只提醒根会话",
 			rootsOnlyHint: "子代理的审批和提问不刷屏。",
 			soundEnabled: "提示音",
-			focusAfterReply: "自制卡片提交后切换到已有页面",
-			focusAfterReplyHint: "仅自制卡片：点允许 / 拒绝 / 选项后前置已有窗口并打开该会话；没有窗口才新开。关掉则只后台提交。",
 			webUrl: "页面地址",
-			webUrlHint: "找不到已有窗口，或系统卡片走「打开会话」时使用。",
+			webUrlHint: "系统卡片「打开会话」、自制卡片「回到会话」时用来找已有窗口。",
 			hiddenReloadMs: "隐藏多久后刷新（毫秒）",
-			cooldownMs: "同一会话通知去抖（毫秒）",
+			notifyTimeoutSec: "停留时间（秒）",
+			notifyTimeoutSecHint: "到点自动消失。填 0 则一直留到你关掉。系统通知屏幕上只有约 7 秒 / 25 秒两档；自制卡片按填写的秒数。",
 			saved: "已保存",
 			saveFailed: "保存失败",
 			unsaved: "未保存",
@@ -67,8 +64,6 @@ window.__ModuleLoader__.load({
 			nav: "Attention",
 			cardNotify: "Notifications",
 			cardNotifyDesc: "When to notify, and whether to use the system toast or the custom card.",
-			cardClick: "After a reply",
-			cardClickDesc: "Whether the custom card should switch back to dsh after submit. The system toast always returns to the session.",
 			cardWake: "Wake after sleep",
 			cardWakeDesc: "Reload the tab after it was frozen so pending cards come back.",
 			enabled: "Enable notifications",
@@ -76,21 +71,20 @@ window.__ModuleLoader__.load({
 			notifyStyle: "Card style",
 			notifyStyleHint: "Pick one. Both styles never show together.",
 			styleSystem: "System toast",
-			styleSystemHint: "Click to return to the session: focus an existing window when possible. Use Open session if the toast click does nothing (may open a new tab). No in-toast choices, replies, or approvals.",
+			styleSystemHint: "Click to return to the session. The toast body tries to focus an existing window. Use Open session if that does nothing: it opens dsh on that conversation (may use a new tab, and no longer flashes closed). No in-toast choices, replies, or approvals.",
 			styleCustom: "Custom card",
-			styleCustomHint: "A bottom-right window for single-select, multi-select, allow/deny, and a next-step prompt when a turn ends.",
+			styleCustomHint: "A bottom-right window for single-select, multi-select, custom answers, allow/deny, and a next-step prompt when a turn ends. Use Return to session on the card to reuse the existing tab.",
 			notifyApproval: "Sandbox approvals",
 			notifyQuestion: "Questions / choices",
 			notifyIdle: "Turn ended",
 			rootsOnly: "Root sessions only",
 			rootsOnlyHint: "Ignore subagent approvals and questions.",
 			soundEnabled: "Sound",
-			focusAfterReply: "Switch to existing page after a custom-card reply",
-			focusAfterReplyHint: "Custom card only: focus the existing window and that session; open the page only if none exists. Off: submit in the background.",
 			webUrl: "Page URL",
-			webUrlHint: "Used when no existing window is found, or when the system toast Open session button is used.",
+			webUrlHint: "Used by system-toast Open session and the custom-card Return to session button to find the existing window.",
 			hiddenReloadMs: "Reload after hidden (ms)",
-			cooldownMs: "Per-session toast cooldown (ms)",
+			notifyTimeoutSec: "Stay on screen (seconds)",
+			notifyTimeoutSecHint: "Auto-hide after this many seconds. 0 keeps it until you dismiss it. System toasts only stay about 7s or 25s on screen; the custom card uses the exact value.",
 			saved: "Saved",
 			saveFailed: "Save failed",
 			unsaved: "Unsaved",
@@ -101,13 +95,14 @@ window.__ModuleLoader__.load({
 			collapse: "Collapse"
 		};
 
-		const NOTIFY_KEYS = ["enabled", "notifyStyle", "notifyApproval", "notifyQuestion", "notifyIdle", "rootsOnly", "soundEnabled"];
-		const CLICK_KEYS = ["focusAfterReply", "webUrl"];
+		const NOTIFY_KEYS = ["enabled", "notifyStyle", "notifyTimeoutSec", "notifyApproval", "notifyQuestion", "notifyIdle", "rootsOnly", "soundEnabled", "webUrl"];
 		const WAKE_KEYS = ["hiddenReloadMs", "cooldownMs"];
 
 		function pickKeys(obj, keys) {
 			const out = {};
-			for (const key of keys) out[key] = obj?.[key];
+			for (const key of keys) {
+				if (obj?.[key] !== undefined) out[key] = obj[key];
+			}
 			return out;
 		}
 
@@ -118,6 +113,9 @@ window.__ModuleLoader__.load({
 				if (key === "hiddenReloadMs" || key === "cooldownMs") {
 					left = Math.max(0, Math.floor(Number(left) || 0));
 					right = Math.max(0, Math.floor(Number(right) || 0));
+				} else if (key === "notifyTimeoutSec") {
+					left = Number.isFinite(Number(left)) ? Math.max(0, Math.min(86400, Math.floor(Number(left)))) : 30;
+					right = Number.isFinite(Number(right)) ? Math.max(0, Math.min(86400, Math.floor(Number(right)))) : 30;
 				} else if (key === "webUrl" || key === "notifyStyle") {
 					left = String(left || "").trim();
 					right = String(right || "").trim();
@@ -181,15 +179,45 @@ window.__ModuleLoader__.load({
 			}
 		}
 
-		function openSession(sessions, sessionId) {
-			if (!sessionId || !sessions || typeof sessions.open !== "function") return;
+		const FOCUS_WINDOW_NAME = "dsh-web";
+		const FOCUS_CHANNEL = "dsh-attention";
+		const FOCUS_HASH_PREFIX = "dsh-attention=";
+		const TITLE_MARK = " · dsh";
+
+		function ensureTitleMark() {
 			try {
-				const snap = sessions.list?.getSnapshot?.();
-				if (snap?.current === sessionId) return;
-				if (snap?.byId && snap.byId[sessionId] === undefined) return;
-				sessions.open(sessionId);
+				const title = String(document.title || "");
+				if (!title) return;
+				if (/\bdsh\b|DeepSeek|Harness/i.test(title)) return;
+				document.title = title + TITLE_MARK;
+			} catch { /* ignore */ }
+		}
+
+		function parseFocusHash(hash) {
+			const raw = String(hash || "");
+			const body = raw.charAt(0) === "#" ? raw.slice(1) : raw;
+			if (body.indexOf(FOCUS_HASH_PREFIX) !== 0) return "";
+			try {
+				return decodeURIComponent(body.slice(FOCUS_HASH_PREFIX.length).split("&")[0] || "");
 			} catch {
-				try { sessions.open(sessionId); } catch { /* ignore */ }
+				return "";
+			}
+		}
+
+		function takeFocusHash() {
+			const id = parseFocusHash(location.hash);
+			if (!id) return "";
+			try { history.replaceState(null, "", location.pathname + location.search); } catch { /* ignore */ }
+			return id;
+		}
+
+		function openSession(sessions, sessionId) {
+			if (!sessionId || !sessions || typeof sessions.open !== "function") return false;
+			try {
+				sessions.open(sessionId);
+				return true;
+			} catch {
+				try { sessions.open(sessionId); return true; } catch { return false; }
 			}
 		}
 
@@ -252,7 +280,7 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 
-		function StyleChoice({ t, value, disabled, onChange }) {
+		function StyleChoice({ t, value, disabled, onChange, name }) {
 			const current = value === "system" ? "system" : "custom";
 			const options = [
 				{ id: "system", labelKey: "styleSystem", hintKey: "styleSystemHint" },
@@ -271,7 +299,7 @@ window.__ModuleLoader__.load({
 					}, [
 						react.createElement("input", {
 							type: "radio",
-							name: "dshatt-notify-style",
+							name: name || "dshatt-notify-style",
 							value: opt.id,
 							checked: on,
 							disabled: disabled === true,
@@ -385,18 +413,19 @@ window.__ModuleLoader__.load({
 
 		function SettingsPage({ t }) {
 			const [saved, setSaved] = react.useState(null);
-			const [drafts, setDrafts] = react.useState({ notify: {}, click: {}, wake: {} });
+			const [drafts, setDrafts] = react.useState({ notify: {}, wake: {} });
 			const [toast, setToast] = react.useState("");
 			const [toastErr, setToastErr] = react.useState(false);
-			const [open, setOpen] = react.useState({ notify: true, click: false, wake: false });
+			const [open, setOpen] = react.useState({ notify: true, wake: false });
 			const [savingCard, setSavingCard] = react.useState(null);
 			const [failedCard, setFailedCard] = react.useState(null);
+			const radioName = react.useRef("dshatt-notify-style-" + Math.random().toString(36).slice(2)).current;
 
 			react.useEffect(() => {
 				let cancelled = false;
 				readConfig().then((data) => {
 					if (cancelled || !data) return;
-					setSaved(data);
+					setSaved({ notifyTimeoutSec: 30, ...data });
 				});
 				return () => { cancelled = true; };
 			}, []);
@@ -424,8 +453,22 @@ window.__ModuleLoader__.load({
 				if (!saved || savingCard) return;
 				const payload = pickKeys(viewOf(card), keys);
 				if (Object.hasOwn(payload, "webUrl")) payload.webUrl = String(payload.webUrl || "").trim();
-				if (Object.hasOwn(payload, "hiddenReloadMs")) payload.hiddenReloadMs = Math.max(0, Math.floor(Number(payload.hiddenReloadMs) || 0));
-				if (Object.hasOwn(payload, "cooldownMs")) payload.cooldownMs = Math.max(0, Math.floor(Number(payload.cooldownMs) || 0));
+				if (Object.hasOwn(payload, "hiddenReloadMs")) {
+					const n = Number(payload.hiddenReloadMs);
+					if (Number.isFinite(n)) payload.hiddenReloadMs = Math.max(0, Math.floor(n));
+					else delete payload.hiddenReloadMs;
+				}
+				if (Object.hasOwn(payload, "cooldownMs")) {
+					const n = Number(payload.cooldownMs);
+					if (Number.isFinite(n)) payload.cooldownMs = Math.max(0, Math.floor(n));
+					else delete payload.cooldownMs;
+				}
+				if (Object.hasOwn(payload, "notifyTimeoutSec")) {
+					const n = Number(payload.notifyTimeoutSec);
+					if (Number.isFinite(n)) payload.notifyTimeoutSec = Math.max(0, Math.min(86400, Math.floor(n)));
+					else delete payload.notifyTimeoutSec;
+				}
+				if (Object.keys(payload).length === 0) return;
 				setSavingCard(card);
 				setFailedCard(null);
 				fetch("/dsh-attention/config", {
@@ -435,7 +478,7 @@ window.__ModuleLoader__.load({
 					cache: "no-store"
 				}).then((response) => response.json().then((data) => ({ response, data })).catch(() => ({ response, data: null }))).then(({ response, data }) => {
 					if (!response.ok || !data?.ok) throw new Error("save-failed");
-					setSaved(data);
+					setSaved((prev) => ({ ...(prev || {}), ...data, ...payload }));
 					setDrafts((prev) => ({ ...prev, [card]: {} }));
 					flash(t("saved"), false);
 				}).catch(() => {
@@ -447,14 +490,15 @@ window.__ModuleLoader__.load({
 			if (!saved) return react.createElement("div", { className: "dshatt_page" });
 
 			const notifyView = viewOf("notify");
-			const clickView = viewOf("click");
 			const wakeView = viewOf("wake");
 			const off = notifyView.enabled === false;
 			const notifyDirty = dirtyOf("notify", NOTIFY_KEYS);
-			const clickDirty = dirtyOf("click", CLICK_KEYS);
 			const wakeDirty = dirtyOf("wake", WAKE_KEYS);
 
-			return react.createElement("div", { className: "dshatt_page" }, [
+			return react.createElement("form", {
+				className: "dshatt_page",
+				onSubmit: (event) => event.preventDefault()
+			}, [
 				react.createElement("ul", { className: "dshatt_list", key: "list" }, [
 					react.createElement(PluginCard, {
 						t,
@@ -470,32 +514,32 @@ window.__ModuleLoader__.load({
 						onSave: () => saveCard("notify", NOTIFY_KEYS)
 					}, [
 						react.createElement(ToggleRow, { t, key: "enabled", labelKey: "enabled", hintKey: "enabledHint", checked: notifyView.enabled !== false, onChange: (v) => patchCard("notify", { enabled: v }) }),
-						react.createElement(StyleChoice, { t, key: "style", value: notifyView.notifyStyle, disabled: off, onChange: (v) => patchCard("notify", { notifyStyle: v }) }),
+						react.createElement(StyleChoice, { t, key: "style", name: radioName, value: notifyView.notifyStyle, disabled: off, onChange: (v) => patchCard("notify", { notifyStyle: v }) }),
+						react.createElement(FieldRow, { t, key: "timeout", labelKey: "notifyTimeoutSec", hintKey: "notifyTimeoutSecHint" },
+							react.createElement("input", {
+								className: "dshatt_input",
+								type: "number",
+								min: "0",
+								max: "86400",
+								step: "5",
+								disabled: off,
+								value: String(notifyView.notifyTimeoutSec ?? 30),
+								onChange: (event) => {
+									const raw = event.target.value;
+									patchCard("notify", { notifyTimeoutSec: raw === "" ? "" : Number(raw) });
+								}
+							})),
 						react.createElement(ToggleRow, { t, key: "appr", labelKey: "notifyApproval", checked: notifyView.notifyApproval !== false, disabled: off, onChange: (v) => patchCard("notify", { notifyApproval: v }) }),
 						react.createElement(ToggleRow, { t, key: "q", labelKey: "notifyQuestion", checked: notifyView.notifyQuestion !== false, disabled: off, onChange: (v) => patchCard("notify", { notifyQuestion: v }) }),
 						react.createElement(ToggleRow, { t, key: "idle", labelKey: "notifyIdle", checked: notifyView.notifyIdle !== false, disabled: off, onChange: (v) => patchCard("notify", { notifyIdle: v }) }),
 						react.createElement(ToggleRow, { t, key: "root", labelKey: "rootsOnly", hintKey: "rootsOnlyHint", checked: notifyView.rootsOnly !== false, disabled: off, onChange: (v) => patchCard("notify", { rootsOnly: v }) }),
-						react.createElement(ToggleRow, { t, key: "snd", labelKey: "soundEnabled", checked: notifyView.soundEnabled !== false, disabled: off, onChange: (v) => patchCard("notify", { soundEnabled: v }) })
-					]),
-					react.createElement(PluginCard, {
-						t,
-						key: "click",
-						title: t("cardClick"),
-						description: t("cardClickDesc"),
-						dirty: clickDirty,
-						open: open.click,
-						onToggle: () => setOpen((prev) => ({ ...prev, click: !prev.click })),
-						saving: savingCard === "click",
-						failed: failedCard === "click",
-						onDiscard: () => discardCard("click"),
-						onSave: () => saveCard("click", CLICK_KEYS)
-					}, [
-						react.createElement(ToggleRow, { t, key: "far", labelKey: "focusAfterReply", hintKey: "focusAfterReplyHint", checked: clickView.focusAfterReply === true, onChange: (v) => patchCard("click", { focusAfterReply: v }) }),
+						react.createElement(ToggleRow, { t, key: "snd", labelKey: "soundEnabled", checked: notifyView.soundEnabled !== false, disabled: off, onChange: (v) => patchCard("notify", { soundEnabled: v }) }),
 						react.createElement(FieldRow, { t, key: "url", labelKey: "webUrl", hintKey: "webUrlHint" },
 							react.createElement("input", {
 								className: "dshatt_input",
-								value: String(clickView.webUrl || ""),
-								onChange: (event) => patchCard("click", { webUrl: event.target.value })
+								value: String(notifyView.webUrl || ""),
+								disabled: off,
+								onChange: (event) => patchCard("notify", { webUrl: event.target.value })
 							}))
 					]),
 					react.createElement(PluginCard, {
@@ -580,6 +624,27 @@ window.__ModuleLoader__.load({
 			let hiddenReloadMs = DEFAULT_HIDDEN_RELOAD_MS;
 			let disposed = false;
 			let sessions = ctx.sessions;
+			let pendingSession = "";
+			try { pendingSession = takeFocusHash(); } catch { pendingSession = ""; }
+			try { window.name = FOCUS_WINDOW_NAME; } catch { /* ignore */ }
+
+			const applyFocus = (sessionId) => {
+				if (!sessionId) return;
+				pendingSession = sessionId;
+				openSession(sessions, sessionId);
+				try {
+					if (sessions?.list?.getSnapshot?.()?.current === sessionId) pendingSession = "";
+				} catch { /* keep retrying */ }
+			};
+
+			let channel = null;
+			try {
+				channel = new BroadcastChannel(FOCUS_CHANNEL);
+				channel.onmessage = (event) => {
+					const id = event?.data?.sessionId;
+					if (event?.data?.type === "focus" && id) applyFocus(id);
+				};
+			} catch { channel = null; }
 
 			const onInput = () => { lastInputAt = Date.now(); };
 			document.addEventListener("input", onInput, true);
@@ -594,13 +659,18 @@ window.__ModuleLoader__.load({
 				reloadOnce(reason);
 			};
 
+			const consume = () => {
+				if (pendingSession) applyFocus(pendingSession);
+				consumeFocus(sessions);
+			};
+
 			const onVisibility = () => {
 				postPresence(currentSessionId(sessions));
 				if (document.visibilityState === "hidden") {
 					hiddenAt = Date.now();
 					return;
 				}
-				consumeFocus(sessions);
+				consume();
 				if (hiddenAt > 0 && Date.now() - hiddenAt >= hiddenReloadMs) {
 					maybeReload("visibilitychange");
 				}
@@ -610,7 +680,7 @@ window.__ModuleLoader__.load({
 			const onFreeze = () => { hiddenAt = Date.now(); };
 			const onResume = () => {
 				postPresence(currentSessionId(sessions));
-				consumeFocus(sessions);
+				consume();
 				if (hiddenAt > 0 && Date.now() - hiddenAt >= hiddenReloadMs) {
 					maybeReload("page-resume");
 				}
@@ -619,7 +689,7 @@ window.__ModuleLoader__.load({
 
 			const onWindowFocus = () => {
 				postPresence(currentSessionId(sessions));
-				consumeFocus(sessions);
+				consume();
 			};
 			const onWindowBlur = () => {
 				postPresence(currentSessionId(sessions));
@@ -630,6 +700,11 @@ window.__ModuleLoader__.load({
 			document.addEventListener("resume", onResume);
 			window.addEventListener("focus", onWindowFocus);
 			window.addEventListener("blur", onWindowBlur);
+			const onHash = () => {
+				const id = takeFocusHash();
+				if (id) applyFocus(id);
+			};
+			window.addEventListener("hashchange", onHash);
 
 			const timer = setInterval(() => {
 				const now = Date.now();
@@ -639,14 +714,16 @@ window.__ModuleLoader__.load({
 
 			const presenceTimer = setInterval(() => {
 				postPresence(currentSessionId(sessions));
+				ensureTitleMark();
 			}, PRESENCE_MS);
 
 			const focusTimer = setInterval(() => {
-				consumeFocus(sessions);
+				consume();
 			}, FOCUS_POLL_MS);
 
 			postPresence(currentSessionId(sessions));
-			consumeFocus(sessions);
+			ensureTitleMark();
+			consume();
 
 			void readConfig().then((config) => {
 				if (!disposed && Number.isFinite(Number(config.hiddenReloadMs))) {
@@ -659,17 +736,20 @@ window.__ModuleLoader__.load({
 				clearInterval(timer);
 				clearInterval(presenceTimer);
 				clearInterval(focusTimer);
+				try { channel?.close(); } catch { /* ignore */ }
 				document.removeEventListener("visibilitychange", onVisibility);
 				document.removeEventListener("freeze", onFreeze);
 				document.removeEventListener("resume", onResume);
 				window.removeEventListener("focus", onWindowFocus);
 				window.removeEventListener("blur", onWindowBlur);
+				window.removeEventListener("hashchange", onHash);
 				document.removeEventListener("input", onInput, true);
 				document.removeEventListener("keydown", onInput, true);
 			};
 
 			const bindSessions = (value) => {
 				if (value) sessions = value;
+				if (pendingSession) applyFocus(pendingSession);
 			};
 
 			try {

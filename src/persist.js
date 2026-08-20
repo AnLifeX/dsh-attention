@@ -15,6 +15,7 @@ export const UI_KEYS = [
   'notifyQuestion',
   'notifyIdle',
   'notifyStyle',
+  'notifyTimeoutSec',
   'focusAfterReply',
   'sound',
   'webUrl',
@@ -52,5 +53,18 @@ export function writeUiOverlay(partial) {
 export function pickUiFields(cfg) {
   const out = {}
   for (const key of UI_KEYS) out[key] = cfg[key]
+  return out
+}
+
+/** 只留下设置页能改的字段，丢掉 undefined，避免空 patch 把界面写回默认。 */
+export function sanitizeUiPatch(patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return {}
+  const out = {}
+  for (const key of UI_KEYS) {
+    if (Object.hasOwn(patch, key) && patch[key] !== undefined) out[key] = patch[key]
+  }
+  if (Object.hasOwn(patch, 'soundEnabled') && patch.soundEnabled !== undefined) {
+    out.soundEnabled = patch.soundEnabled
+  }
   return out
 }

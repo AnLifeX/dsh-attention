@@ -56,6 +56,23 @@ export function notifyStyleOf(value) {
   return value === 'system' ? 'system' : 'custom'
 }
 
+export const DEFAULT_SOUND = 'ms-winsoundevent:Notification.Default'
+
+/** 空字符串表示关掉提示音，不能再当成缺省写回默认铃声。 */
+export function soundOf(value, fallback = DEFAULT_SOUND) {
+  if (value === false || value === null || value === '') return ''
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  return fallback
+}
+
+/** 通知停留秒数。0 = 一直留到关掉；上限一天。 */
+export function notifyTimeoutSecOf(value) {
+  if (value === false || value === null) return 0
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n < 0) return 30
+  return Math.min(n, 86400)
+}
+
 /**
  * 提问能否在 Toast 上直接点选：仅单题、单选、1–3 个选项。
  * 多题 / 多选 / 更多选项走独立回复小窗。
@@ -99,4 +116,26 @@ export function shortSessionId(sessionId) {
   const text = String(sessionId ?? '')
   if (text.startsWith('session-')) return text.slice(8, 16)
   return text.slice(0, 8)
+}
+
+export const FOCUS_WINDOW_NAME = 'dsh-web'
+export const FOCUS_HASH_PREFIX = 'dsh-attention='
+
+/** 系统通知打开会话时落到已有 SPA，并用 hash 带上 sessionId。 */
+export function sessionFocusUrl(webUrl, sessionId) {
+  const base = trimSlash(webUrl || DEFAULT_WEB_URL)
+  const id = String(sessionId ?? '').trim()
+  if (!id) return `${base}/`
+  return `${base}/#${FOCUS_HASH_PREFIX}${encodeURIComponent(id)}`
+}
+
+export function parseFocusHash(hash) {
+  const raw = String(hash ?? '')
+  const body = raw.startsWith('#') ? raw.slice(1) : raw
+  if (!body.startsWith(FOCUS_HASH_PREFIX)) return ''
+  try {
+    return decodeURIComponent(body.slice(FOCUS_HASH_PREFIX.length).split('&')[0] || '')
+  } catch {
+    return ''
+  }
 }

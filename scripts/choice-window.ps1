@@ -33,6 +33,7 @@ public static class DshAttentionNative {
   [DllImport("gdi32.dll")] public static extern IntPtr CreateRoundRectRgn(int l, int t, int r, int b, int w, int h);
   [DllImport("user32.dll")] public static extern bool ReleaseCapture();
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageStr(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
 }
 "@
 }
@@ -70,6 +71,35 @@ function Write-Inbox($Obj) {
   $json = ConvertTo-InboxJson $Obj
   Add-Content -LiteralPath $inboxFile -Value $json -Encoding UTF8
   Write-ActLog ('inbox a=' + $Obj['a'])
+}
+
+function Focus-ExistingDsh {
+  $webUrl = [string]$data.webUrl
+  if (-not $webUrl) { $webUrl = 'http://127.0.0.1:3080' }
+  $hostHint = '127.0.0.1:3080'
+  $port = 3080
+  try {
+    $u = [Uri]$webUrl
+    if ($u.Authority) { $hostHint = $u.Authority }
+    if ($u.Port -gt 0) { $port = [int]$u.Port }
+  } catch {}
+  $titlePat = 'DeepSeek|Harness|\bdsh\b|' + [regex]::Escape($hostHint) + '|localhost:' + [regex]::Escape([string]$port)
+  foreach ($proc in Get-Process | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }) {
+    $title = [string]$proc.MainWindowTitle
+    if (-not $title -or $title -notmatch $titlePat) { continue }
+    try {
+      $wshell = New-Object -ComObject WScript.Shell
+      if ($wshell.AppActivate($proc.Id)) { return }
+      if ($wshell.AppActivate($title)) { return }
+    } catch {}
+  }
+}
+
+function Apply-Cue($Box, [string]$Text) {
+  if (-not $Box -or -not $Text) { return }
+  try {
+    [void][DshAttentionNative]::SendMessageStr($Box.Handle, 0x1501, [IntPtr]1, $Text)
+  } catch {}
 }
 
 function New-Color($R, $G, $B) {
@@ -135,6 +165,7 @@ $err.Width = $innerW
 $idleBox = $null
 $script:picked = @{}
 $script:questions = @()
+$script:customBoxes = @{}
 
 function Close-Soon {
   $busyState.busy = $true
@@ -177,7 +208,7 @@ function New-OptionButton([string]$Caption) {
   return $btn
 }
 
-function New-TextButton([string]$Caption) {
+function New-TextButton([string]$Caption, [int]$Width = 52) {
   $btn = New-Object System.Windows.Forms.Button
   $btn.UseVisualStyleBackColor = $false
   $btn.FlatStyle = 'Flat'
@@ -189,7 +220,24 @@ function New-TextButton([string]$Caption) {
   $btn.Text = $Caption
   $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
   $btn.Height = 26
-  $btn.Width = 52
+  $btn.Width = $Width
+  return $btn
+}
+
+function Open-ExistingSession {
+  try {
+    Write-Inbox @{ t = $Token; a = 'open' }
+    Focus-ExistingDsh
+  } catch {
+    Write-ActLog ('open-click-error=' + $_.Exception.Message)
+  }
+}
+
+function Add-OpenSessionButton([int]$X, [int]$Y) {
+  $btn = New-TextButton (LabelOf 'openSession' 'Open') 80
+  $btn.Location = New-Object System.Drawing.Point $X, $Y
+  $btn.Add_Click({ Open-ExistingSession })
+  $form.Controls.Add($btn)
   return $btn
 }
 
@@ -223,8 +271,16 @@ $kicker.ForeColor = $muted
 $kicker.Text = $kickerText
 $kicker.Location = New-Object System.Drawing.Point $pad, 8
 $kicker.Size = New-Object System.Drawing.Size ($innerW - 28), 16
+$kicker.Cursor = [System.Windows.Forms.Cursors]::Hand
 $header.Controls.Add($kicker)
-Enable-Drag $kicker
+$kicker.Add_Click({
+  try {
+    Write-Inbox @{ t = $Token; a = 'open' }
+    Focus-ExistingDsh
+  } catch {
+    Write-ActLog ('open-click-error=' + $_.Exception.Message)
+  }
+})
 
 $close = New-Object System.Windows.Forms.Button
 $close.UseVisualStyleBackColor = $false
@@ -265,17 +321,27 @@ $watch.Add_Tick({
 $watch.Start()
 $form.Add_FormClosed({ $watch.Stop() })
 
+$timeoutSec = 0
+try { $timeoutSec = [int]$data.timeoutSec } catch { $timeoutSec = 0 }
+if ($timeoutSec -gt 0) {
+  $life = New-Object System.Windows.Forms.Timer
+  $life.Interval = [Math]::Min(86400000, $timeoutSec * 1000)
+  $life.Add_Tick({
+    $this.Stop()
+    Write-ActLog 'timeout-close'
+    $form.Close()
+  })
+  $life.Start()
+  $form.Add_FormClosed({ $life.Stop() })
+}
+
 if ($kind -eq 'question') {
   $script:questions = @($data.questions)
   $body = [string]$script:questions[0].question
   if (-not $body) { $body = [string]$data.heading }
   Add-BodyLabel $body
 
-  $needSubmit = $false
-  foreach ($q in $script:questions) {
-    if ($q.multiSelect -eq $true) { $needSubmit = $true }
-    if ($script:questions.Count -gt 1) { $needSubmit = $true }
-  }
+  $needSubmit = $true
 
   $optHost = New-Object System.Windows.Forms.Panel
   $optHost.Location = New-Object System.Drawing.Point $pad, $y
@@ -303,6 +369,7 @@ if ($kind -eq 'question') {
     $multi = ($q.multiSelect -eq $true)
     foreach ($opt in @($q.options)) {
       $label = [string]$opt.label
+      if (-not $label) { continue }
       $caption = $label
       $btn = New-OptionButton $caption
       $btn.Width = $innerW
@@ -346,12 +413,42 @@ if ($kind -eq 'question') {
       $optHost.Controls.Add($btn)
       $oy += $optH + $optGap
     }
+
+    $hint = New-Object System.Windows.Forms.Label
+    $hint.AutoSize = $false
+    $hint.Font = $fontSmall
+    $hint.ForeColor = $muted
+    $hint.Text = LabelOf 'customPlaceholder' '...'
+    $hint.Size = New-Object System.Drawing.Size $innerW, 16
+    $hint.Location = New-Object System.Drawing.Point 0, $oy
+    $optHost.Controls.Add($hint)
+    $oy += 16
+
+    $boxBg = New-Object System.Windows.Forms.Panel
+    $boxBg.BackColor = $card
+    $boxBg.Location = New-Object System.Drawing.Point 0, $oy
+    $boxBg.Size = New-Object System.Drawing.Size $innerW, 28
+    $optHost.Controls.Add($boxBg)
+
+    $tb = New-Object System.Windows.Forms.TextBox
+    $tb.BorderStyle = 'None'
+    $tb.BackColor = $card
+    $tb.ForeColor = $fg
+    $tb.Font = $fontUi
+    $tb.Width = $innerW - 16
+    $tb.Height = 18
+    $tb.Location = New-Object System.Drawing.Point 8, ($oy + 5)
+    $tb.Tag = $qid
+    $optHost.Controls.Add($tb)
+    $tb.BringToFront()
+    $script:customBoxes[$qid] = $tb
+    $oy += 32
   }
 
   $optArea = $oy
-  if ($optArea -gt 168) {
+  if ($optArea -gt 196) {
     $optHost.AutoScroll = $true
-    $optHost.Height = 168
+    $optHost.Height = 196
     $optHost.Width = $innerW
   } else {
     $optHost.Height = $optArea
@@ -362,6 +459,7 @@ if ($kind -eq 'question') {
     $err.Location = New-Object System.Drawing.Point $pad, $y
     $form.Controls.Add($err)
     $y += 16
+    [void](Add-OpenSessionButton $pad $y)
     $send = New-TextButton (LabelOf 'submit' 'OK')
     $send.Location = New-Object System.Drawing.Point ($cardW - $pad - 52), ($y)
     $send.Add_Click({
@@ -371,11 +469,19 @@ if ($kind -eq 'question') {
         foreach ($q in $script:questions) {
           $qid = [string]$q.id
           $selList = @($script:picked[$qid])
-          if ($selList.Count -eq 0) {
+          $custom = ''
+          $box = $script:customBoxes[$qid]
+          if ($box) { $custom = ([string]$box.Text).Trim() }
+          if ($selList.Count -eq 0 -and -not $custom) {
             $err.Text = LabelOf 'missing' 'pick'
             return
           }
-          [void]$answers.Add(@{ id = $qid; selected = $selList })
+          $item = @{ id = $qid; selected = $selList }
+          if ($custom) {
+            $item['custom'] = $custom
+            if ($q.multiSelect -ne $true) { $item['selected'] = @() }
+          }
+          [void]$answers.Add($item)
         }
         $busyState.busy = $true
         Write-Inbox @{ t = $Token; a = 'answer'; answers = @($answers) }
@@ -433,7 +539,9 @@ elseif ($kind -eq 'approval') {
     }
   })
   $form.Controls.Add($allow)
-  $y += $optH + 8
+  $y += $optH + 4
+  [void](Add-OpenSessionButton $pad $y)
+  $y += 28
 }
 elseif ($kind -eq 'idle') {
   $body = [string]$data.heading
@@ -479,20 +587,28 @@ elseif ($kind -eq 'idle') {
   })
   $form.Controls.Add($send)
   $y += 36
+  [void](Add-OpenSessionButton $pad $y)
+  $y += 28
 }
 else {
   Write-ActLog ('unknown-kind=' + $kind)
   exit 0
 }
 
-$form.Height = [Math]::Max(96, [Math]::Min(320, $y + 10))
+$form.Height = [Math]::Max(96, [Math]::Min(380, $y + 10))
 Apply-Round
 Place-BottomRight
 $form.Add_Shown({
   Apply-Round
   Place-BottomRight
+  $cue = LabelOf 'customPlaceholder' '...'
+  foreach ($qid in @($script:customBoxes.Keys)) {
+    Apply-Cue $script:customBoxes[$qid] $cue
+  }
   if ($idleBox) { $idleBox.Focus() }
-  try { [System.Media.SystemSounds]::Asterisk.Play() } catch {}
+  if ($data.playSound -ne $false) {
+    try { [System.Media.SystemSounds]::Asterisk.Play() } catch {}
+  }
 })
 
 Write-ActLog ('show kind=' + $kind + ' token=' + $Token + ' h=' + $form.Height)

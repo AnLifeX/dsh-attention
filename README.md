@@ -57,6 +57,7 @@ dsh plugin --profile web add github:Gaq152/dsh-attention
 | `notifyApproval` | `true` | 提权审批 |
 | `notifyQuestion` | `true` | 提问 / 选择 |
 | `notifyIdle` | `true` | 一轮对话结束后的下一步输入 |
+| `notifyTimeoutSec` | `30` | 通知停留秒数；`0` 一直留到关掉 |
 | `focusAfterReply` | `false` | 点击允许 / 拒绝 / 选项后是否切换到已有页面 |
 | `webUrl` | `http://127.0.0.1:3080` | 回环回调与找不到窗口时的打开地址 |
 | `hiddenReloadMs` | `8000` | 标签隐藏多久后唤醒要刷新 |

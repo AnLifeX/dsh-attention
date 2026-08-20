@@ -1,15 +1,20 @@
 # Silent toast activation for dsh-attention.
 # URI is path-based (dsh-attention://do/TOKEN/ACTION) so cmd.exe cannot split on &.
 # Simple actions hit loopback GET /act. "compose" opens a small app-window to answer.
+# -FocusExisting -ReuseOnly: only AppActivate an already-open dsh window.
 param(
   [Parameter(Position = 0)]
-  [string]$Uri
+  [string]$Uri,
+  [switch]$FocusExisting,
+  [switch]$ReuseOnly,
+  [string]$WebUrl,
+  [string]$SessionId
 )
 
 if (-not $Uri) { $Uri = $env:DSH_ATTENTION_URI }
 if (-not $Uri) { $Uri = $args[0] }
-if (-not $Uri) { exit 0 }
-$Uri = [string]$Uri.Trim().Trim('"')
+if (-not $Uri -and -not $FocusExisting) { exit 0 }
+if ($Uri) { $Uri = [string]$Uri.Trim().Trim('"') }
 
 function Write-ActLog([string]$Line) {
   try {
@@ -69,11 +74,19 @@ function Get-CandidateWindows {
   Get-Process | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }
 }
 
-function Focus-DshWindow([string]$WebUrl) {
+function Get-ListenPort([string]$WebUrl) {
+  try {
+    $port = [int](([Uri]$WebUrl).Port)
+    if ($port -gt 0) { return $port }
+  } catch {}
+  return 3080
+}
+
+function Focus-DshWindow([string]$WebUrl, [string]$OpenUrl, [switch]$ReuseOnly) {
   $hostHint = '127.0.0.1:3080'
   try { $hostHint = ([Uri]$WebUrl).Authority } catch {}
-  $port = (($hostHint -split ':')[-1])
-  $titlePat = 'DeepSeek|Harness|dsh|' + [regex]::Escape($hostHint) + '|localhost:' + [regex]::Escape($port)
+  $port = Get-ListenPort $WebUrl
+  $titlePat = 'DeepSeek|Harness|\bdsh\b|' + [regex]::Escape($hostHint) + '|localhost:' + [regex]::Escape([string]$port)
 
   foreach ($proc in Get-CandidateWindows) {
     $title = [string]$proc.MainWindowTitle
@@ -81,6 +94,25 @@ function Focus-DshWindow([string]$WebUrl) {
       if (Focus-ProcessWindow $proc) { return $true }
     }
   }
+
+  try {
+    $conns = @(Get-NetTCPConnection -RemotePort $port -State Established -ErrorAction SilentlyContinue)
+    foreach ($c in $conns) {
+      $proc = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
+      if (-not $proc) { continue }
+      if ($proc.ProcessName -match '^(node|powershell|pwsh|cmd|wscript)$') { continue }
+      if (Focus-ProcessWindow $proc) { return $true }
+      try {
+        $parentId = (Get-CimInstance Win32_Process -Filter ("ProcessId=" + $c.OwningProcess) -ErrorAction SilentlyContinue).ParentProcessId
+        $parent = Get-Process -Id $parentId -ErrorAction SilentlyContinue
+        if ($parent -and $parent.ProcessName -notmatch '^(node|powershell|pwsh)$') {
+          if (Focus-ProcessWindow $parent) { return $true }
+        }
+      } catch {}
+    }
+  } catch {}
+
+  if ($ReuseOnly) { return $false }
 
   try {
     $apps = @(Get-StartApps | Where-Object {
@@ -93,14 +125,9 @@ function Focus-DshWindow([string]$WebUrl) {
     }
   } catch {}
 
-  $browserNames = @('msedge', 'chrome', 'brave', 'firefox', 'opera')
-  foreach ($proc in Get-CandidateWindows) {
-    if ($browserNames -contains $proc.ProcessName) {
-      if (Focus-ProcessWindow $proc) { return $true }
-    }
-  }
-
-  Start-Process $WebUrl | Out-Null
+  $target = $OpenUrl
+  if (-not $target) { $target = $WebUrl }
+  Start-Process $target | Out-Null
   return $false
 }
 
@@ -157,6 +184,18 @@ function Invoke-Act([string]$WebUrl, $Map) {
   try { return $text | ConvertFrom-Json } catch { return $null }
 }
 
+if ($FocusExisting) {
+  $url = $WebUrl
+  if (-not $url) { $url = Get-WebUrl }
+  $openUrl = $url
+  if ($SessionId) {
+    $openUrl = $url.TrimEnd('/') + '/#dsh-attention=' + [Uri]::EscapeDataString([string]$SessionId)
+  }
+  Write-ActLog ("focus-existing reuse=" + $ReuseOnly + " sid=" + $SessionId)
+  Focus-DshWindow $url $openUrl -ReuseOnly:$ReuseOnly | Out-Null
+  exit 0
+}
+
 $webUrl = Get-WebUrl
 $map = Get-QueryMap $Uri
 $action = [string]$map['a']
@@ -178,6 +217,11 @@ $wantFocus = $false
 if ($result -and $result.focus -eq $true) { $wantFocus = $true }
 elseif ($action -eq 'open' -or -not $action) { $wantFocus = $true }
 
-if ($wantFocus) { Focus-DshWindow $webUrl | Out-Null }
+$openUrl = $webUrl
+if ($result -and $result.sessionId) {
+  $openUrl = $webUrl.TrimEnd('/') + '/#dsh-attention=' + [Uri]::EscapeDataString([string]$result.sessionId)
+}
+
+if ($wantFocus) { Focus-DshWindow $webUrl $openUrl | Out-Null }
 if (-not $result -and $action -ne 'open' -and $action) { exit 1 }
 exit 0
