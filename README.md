@@ -41,10 +41,10 @@ dsh plugin --profile web add github:Gaq152/dsh-attention
 
 1. 模型申请 `danger-full-access` 等提权：系统通知出现「允许一次 / 拒绝 / 打开页面」。
 2. `ask_user_question`：右下角弹出选择窗，**点选项即提交**（单选不必再点提交）。多选 / 多题时先勾选再点提交。
-3. 一轮对话结束：右下角窗口写下一步并发送；点通知本体或「打开页面」会切到该会话。
-4. `focusAfterReply` 为 `false`（默认）时，点允许 / 拒绝 / 选项只后台提交；设为 `true` 时会切换到已有页面（没有则新开）并聚焦该会话。
+3. 一轮对话结束：右下角窗口写下一步并发送；点通知本体或「打开会话」会切到该会话。
+4. 自制卡片用「回到会话」切回已有页面；点允许 / 拒绝 / 选项只后台提交。
 5. 标签休眠后再回来：若隐藏超过约 8 秒，页面会自动刷新一次（等同 F5），把还挂着的审批卡片重放出来。正在输入时不会刷新。
-6. 打开 **设置 → 提醒**（铃铛图标）：用卡片开关通知范围、回复后是否切页、休眠刷新。每张卡片改完后点 **保存**，写入 `%USERPROFILE%\.dsh\dsh-attention-ui.json`，重启仍在。
+6. 打开 **设置 → 提醒**（铃铛图标）：用卡片开关通知范围、卡片样式、休眠刷新。每张卡片改完后点 **保存**，写入 `%USERPROFILE%\.dsh\dsh-attention-ui.json`，重启仍在。
 
 ## 配置
 
@@ -58,9 +58,8 @@ dsh plugin --profile web add github:Gaq152/dsh-attention
 | `notifyQuestion` | `true` | 提问 / 选择 |
 | `notifyIdle` | `true` | 一轮对话结束后的下一步输入 |
 | `notifyTimeoutSec` | `30` | 通知停留秒数；`0` 一直留到关掉 |
-| `focusAfterReply` | `false` | 点击允许 / 拒绝 / 选项后是否切换到已有页面 |
 | `webUrl` | `http://127.0.0.1:3080` | 回环回调与找不到窗口时的打开地址 |
-| `hiddenReloadMs` | `8000` | 标签隐藏多久后唤醒要刷新 |
+| `hiddenReloadMs` | `8000` | 标签隐藏多久后唤醒要刷新（毫秒；设置页按秒填写） |
 | `cooldownMs` | `1500` | 同一会话通知去抖 |
 | `sound` | 系统默认提示音 | 设为 `false` 静音 |
 

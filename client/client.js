@@ -39,7 +39,7 @@ window.__ModuleLoader__.load({
 			styleSystem: "系统通知卡片",
 			styleSystemHint: "只支持点一下回到会话。点通知本体走自定义协议，尽量前置已有窗口。没反应时用「打开会话」：会打开 dsh 并切到那条会话（可能是新标签，不再闪一下就关）。不能在通知里选择、回复或提权。",
 			styleCustom: "自制卡片",
-			styleCustomHint: "右下角窗口。支持单选、多选、自定义输入、提权允许/拒绝，以及一轮结束后写下一步。卡片上的「回到会话」会切到已有页面。",
+			styleCustomHint: "右下角窗口。支持单选、多选、自定义输入、提权允许/拒绝，以及一轮结束后写下一步。卡片上的「回到会话」按下面的复用 / 新开设置执行。",
 			notifyApproval: "提权审批",
 			notifyQuestion: "提问 / 选择",
 			notifyIdle: "一轮对话结束",
@@ -47,8 +47,18 @@ window.__ModuleLoader__.load({
 			rootsOnlyHint: "子代理的审批和提问不刷屏。",
 			soundEnabled: "提示音",
 			webUrl: "页面地址",
-			webUrlHint: "系统卡片「打开会话」、自制卡片「回到会话」时用来找已有窗口。",
-			hiddenReloadMs: "隐藏多久后刷新（毫秒）",
+			webUrlHint: "系统卡片「打开会话」、自制卡片「回到会话」时用来找已有窗口，或作为新开时的地址。",
+			openSessionMode: "回到会话",
+			openSessionModeHint: "建议把 dsh 安装成 Edge 应用后选「复用已有窗口」；在普通浏览器标签里请选「新开」。",
+			openReuse: "复用已有窗口",
+			openReuseHint: "前置已经打开的 dsh 应用或窗口，并切到对应会话。Edge 应用下最稳。",
+			openNew: "新开一个",
+			openNewHint: "每次都新开一个页面打开该会话。普通浏览器标签请用这个。",
+			openReuseWarn: "当前不是 Edge 应用，而是普通浏览器标签。这时选「复用已有窗口」经常找不到标签或看起来没反应，建议改成「新开」，或把本站安装成应用后再选复用。",
+			hiddenReloadSec: "隐藏多久后刷新（秒）",
+			hiddenReloadSecHint: "标签切走超过这么多秒再回来时，刷新一次，避免卡片卡住。改完点保存后立即生效。",
+			cooldownMs: "同一会话提醒间隔（毫秒）",
+			cooldownMsHint: "同一会话连续弹提醒的最短间隔，避免刷屏。",
 			notifyTimeoutSec: "停留时间（秒）",
 			notifyTimeoutSecHint: "到点自动消失。填 0 则一直留到你关掉。系统通知屏幕上只有约 7 秒 / 25 秒两档；自制卡片按填写的秒数。",
 			saved: "已保存",
@@ -73,7 +83,7 @@ window.__ModuleLoader__.load({
 			styleSystem: "System toast",
 			styleSystemHint: "Click to return to the session. The toast body tries to focus an existing window. Use Open session if that does nothing: it opens dsh on that conversation (may use a new tab, and no longer flashes closed). No in-toast choices, replies, or approvals.",
 			styleCustom: "Custom card",
-			styleCustomHint: "A bottom-right window for single-select, multi-select, custom answers, allow/deny, and a next-step prompt when a turn ends. Use Return to session on the card to reuse the existing tab.",
+			styleCustomHint: "A bottom-right window for single-select, multi-select, custom answers, allow/deny, and a next-step prompt when a turn ends. Return to session on the card follows the Reuse / Open new setting below.",
 			notifyApproval: "Sandbox approvals",
 			notifyQuestion: "Questions / choices",
 			notifyIdle: "Turn ended",
@@ -81,8 +91,18 @@ window.__ModuleLoader__.load({
 			rootsOnlyHint: "Ignore subagent approvals and questions.",
 			soundEnabled: "Sound",
 			webUrl: "Page URL",
-			webUrlHint: "Used by system-toast Open session and the custom-card Return to session button to find the existing window.",
-			hiddenReloadMs: "Reload after hidden (ms)",
+			webUrlHint: "Used to find an existing window, or as the address when opening a new one.",
+			openSessionMode: "Return to session",
+			openSessionModeHint: "If dsh is installed as an Edge app, choose Reuse existing window. In a normal browser tab, choose Open new.",
+			openReuse: "Reuse existing window",
+			openReuseHint: "Bring the already-open dsh app or window to the front and switch to that session. Most reliable as an Edge app.",
+			openNew: "Open new",
+			openNewHint: "Always open a new page for that session. Use this in a normal browser tab.",
+			openReuseWarn: "This window is a normal browser tab, not an Edge app. Reuse existing window often fails to find the tab. Choose Open new, or install this site as an app and then use Reuse.",
+			hiddenReloadSec: "Reload after hidden (seconds)",
+			hiddenReloadSecHint: "If the tab was away longer than this, reload once when you come back so pending cards return. Takes effect as soon as you save.",
+			cooldownMs: "Minimum gap between alerts (ms)",
+			cooldownMsHint: "Ignore another reminder for the same session until this many milliseconds have passed.",
 			notifyTimeoutSec: "Stay on screen (seconds)",
 			notifyTimeoutSecHint: "Auto-hide after this many seconds. 0 keeps it until you dismiss it. System toasts only stay about 7s or 25s on screen; the custom card uses the exact value.",
 			saved: "Saved",
@@ -95,7 +115,7 @@ window.__ModuleLoader__.load({
 			collapse: "Collapse"
 		};
 
-		const NOTIFY_KEYS = ["enabled", "notifyStyle", "notifyTimeoutSec", "notifyApproval", "notifyQuestion", "notifyIdle", "rootsOnly", "soundEnabled", "webUrl"];
+		const NOTIFY_KEYS = ["enabled", "notifyStyle", "notifyTimeoutSec", "notifyApproval", "notifyQuestion", "notifyIdle", "rootsOnly", "soundEnabled", "webUrl", "openSessionMode"];
 		const WAKE_KEYS = ["hiddenReloadMs", "cooldownMs"];
 
 		function pickKeys(obj, keys) {
@@ -116,7 +136,7 @@ window.__ModuleLoader__.load({
 				} else if (key === "notifyTimeoutSec") {
 					left = Number.isFinite(Number(left)) ? Math.max(0, Math.min(86400, Math.floor(Number(left)))) : 30;
 					right = Number.isFinite(Number(right)) ? Math.max(0, Math.min(86400, Math.floor(Number(right)))) : 30;
-				} else if (key === "webUrl" || key === "notifyStyle") {
+				} else if (key === "webUrl" || key === "notifyStyle" || key === "openSessionMode") {
 					left = String(left || "").trim();
 					right = String(right || "").trim();
 				}
@@ -131,6 +151,22 @@ window.__ModuleLoader__.load({
 
 		function pageFocused() {
 			return document.visibilityState === "visible" && document.hasFocus();
+		}
+
+		function isStandaloneApp() {
+			if (typeof window === "undefined") return false;
+			try {
+				if (window.matchMedia("(display-mode: standalone)").matches) return true;
+				if (window.matchMedia("(display-mode: minimal-ui)").matches) return true;
+				if (window.matchMedia("(display-mode: window-controls-overlay)").matches) return true;
+			} catch { /* ignore */ }
+			try {
+				if (navigator.windowControlsOverlay && navigator.windowControlsOverlay.visible) return true;
+			} catch { /* ignore */ }
+			try {
+				if (navigator.standalone === true) return true;
+			} catch { /* ignore */ }
+			return false;
 		}
 
 		function reloadOnce(reason) {
@@ -160,6 +196,7 @@ window.__ModuleLoader__.load({
 			const body = JSON.stringify({
 				focused: pageFocused(),
 				sessionId: sessionId || undefined,
+				title: (typeof document !== "undefined" && document.title) ? String(document.title) : undefined
 			});
 			fetch("/dsh-attention/presence", {
 				method: "POST",
@@ -270,6 +307,7 @@ window.__ModuleLoader__.load({
 				".dshatt_btn_outline{background:transparent;border-color:var(--dsw-alias-border-l2,rgba(128,128,128,.25));color:var(--dsw-alias-label-secondary)}",
 				".dshatt_btn_outline:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed,rgba(128,128,128,.45))}",
 				".dshatt_btn_primary{background:var(--dsw-alias-label-primary,#111);color:var(--dsw-alias-bg-layer-3,#fff)}",
+				".dshatt_warn{margin:4px 0 0;font-size:12px;line-height:1.5;color:var(--dsw-alias-state-warning-primary,#ca8a04)}",
 				".dshatt_input{background:var(--dsw-specific-input-major,var(--dsw-alias-bg-layer-2,rgba(128,128,128,.08)));border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.2));border-radius:6px;padding:8px 12px;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;width:100%;box-sizing:border-box;outline:none}",
 				".dshatt_input:focus{border-color:var(--dsw-alias-brand-primary,#0f766e);box-shadow:0 0 0 2px rgba(15,118,110,.22)}",
 				".dshatt_toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--dsw-alias-state-success-primary,#10b981);color:#fff;padding:8px 18px;border-radius:999px;font-size:12.5px;font-weight:500;z-index:100000}",
@@ -316,6 +354,48 @@ window.__ModuleLoader__.load({
 						])
 					]);
 				}))
+			]);
+		}
+
+		function OpenSessionChoice({ t, value, disabled, onChange, name, standalone }) {
+			const current = value === "new" ? "new" : "reuse";
+			const options = [
+				{ id: "reuse", labelKey: "openReuse", hintKey: "openReuseHint" },
+				{ id: "new", labelKey: "openNew", hintKey: "openNewHint" }
+			];
+			return react.createElement("div", { className: "dshatt_row dshatt_row_stack" }, [
+				react.createElement("span", { className: "dshatt_copy", key: "c" }, [
+					react.createElement("span", { className: "dshatt_label", key: "l" }, t("openSessionMode")),
+					react.createElement("span", { className: "dshatt_hint", key: "h" }, t("openSessionModeHint"))
+				]),
+				react.createElement("div", { className: "dshatt_choice", key: "opts" }, options.map((opt) => {
+					const on = current === opt.id;
+					return react.createElement("label", {
+						key: opt.id,
+						className: "dshatt_choice_item" + (on ? " dshatt_choice_item_on" : "")
+					}, [
+						react.createElement("input", {
+							type: "radio",
+							name: name || "dshatt-open-session-mode",
+							value: opt.id,
+							checked: on,
+							disabled: disabled === true,
+							onClick: (event) => event.stopPropagation(),
+							onChange: (event) => {
+								event.stopPropagation();
+								if (event.target.checked) onChange(opt.id);
+							},
+							key: "i"
+						}),
+						react.createElement("span", { className: "dshatt_copy", key: "t" }, [
+							react.createElement("span", { className: "dshatt_label", key: "l" }, t(opt.labelKey)),
+							react.createElement("span", { className: "dshatt_hint", key: "h" }, t(opt.hintKey))
+						])
+					]);
+				})),
+				current === "reuse" && standalone !== true
+					? react.createElement("p", { className: "dshatt_warn", role: "status", key: "warn" }, t("openReuseWarn"))
+					: null
 			]);
 		}
 
@@ -420,14 +500,38 @@ window.__ModuleLoader__.load({
 			const [savingCard, setSavingCard] = react.useState(null);
 			const [failedCard, setFailedCard] = react.useState(null);
 			const radioName = react.useRef("dshatt-notify-style-" + Math.random().toString(36).slice(2)).current;
+			const openModeName = react.useRef("dshatt-open-session-" + Math.random().toString(36).slice(2)).current;
+			const [standalone, setStandalone] = react.useState(() => isStandaloneApp());
 
 			react.useEffect(() => {
 				let cancelled = false;
 				readConfig().then((data) => {
 					if (cancelled || !data) return;
-					setSaved({ notifyTimeoutSec: 30, ...data });
+					setSaved({ notifyTimeoutSec: 30, openSessionMode: "reuse", ...data });
 				});
 				return () => { cancelled = true; };
+			}, []);
+
+			react.useEffect(() => {
+				const sync = () => setStandalone(isStandaloneApp());
+				sync();
+				const queries = [
+					"(display-mode: standalone)",
+					"(display-mode: minimal-ui)",
+					"(display-mode: window-controls-overlay)"
+				].map((q) => {
+					try { return window.matchMedia(q); } catch { return null; }
+				}).filter(Boolean);
+				queries.forEach((mq) => {
+					if (mq.addEventListener) mq.addEventListener("change", sync);
+					else if (mq.addListener) mq.addListener(sync);
+				});
+				return () => {
+					queries.forEach((mq) => {
+						if (mq.removeEventListener) mq.removeEventListener("change", sync);
+						else if (mq.removeListener) mq.removeListener(sync);
+					});
+				};
 			}, []);
 
 			const flash = (text, err) => {
@@ -453,6 +557,7 @@ window.__ModuleLoader__.load({
 				if (!saved || savingCard) return;
 				const payload = pickKeys(viewOf(card), keys);
 				if (Object.hasOwn(payload, "webUrl")) payload.webUrl = String(payload.webUrl || "").trim();
+				if (Object.hasOwn(payload, "openSessionMode")) payload.openSessionMode = payload.openSessionMode === "new" ? "new" : "reuse";
 				if (Object.hasOwn(payload, "hiddenReloadMs")) {
 					const n = Number(payload.hiddenReloadMs);
 					if (Number.isFinite(n)) payload.hiddenReloadMs = Math.max(0, Math.floor(n));
@@ -481,6 +586,7 @@ window.__ModuleLoader__.load({
 					setSaved((prev) => ({ ...(prev || {}), ...data, ...payload }));
 					setDrafts((prev) => ({ ...prev, [card]: {} }));
 					flash(t("saved"), false);
+					try { window.dispatchEvent(new CustomEvent("dsh-attention-config", { detail: data })); } catch { /* ignore */ }
 				}).catch(() => {
 					setFailedCard(card);
 					flash(t("saveFailed"), true);
@@ -540,7 +646,16 @@ window.__ModuleLoader__.load({
 								value: String(notifyView.webUrl || ""),
 								disabled: off,
 								onChange: (event) => patchCard("notify", { webUrl: event.target.value })
-							}))
+							})),
+						react.createElement(OpenSessionChoice, {
+							t,
+							key: "openmode",
+							name: openModeName,
+							value: notifyView.openSessionMode,
+							disabled: off,
+							standalone,
+							onChange: (v) => patchCard("notify", { openSessionMode: v })
+						})
 					]),
 					react.createElement(PluginCard, {
 						t,
@@ -555,16 +670,26 @@ window.__ModuleLoader__.load({
 						onDiscard: () => discardCard("wake"),
 						onSave: () => saveCard("wake", WAKE_KEYS)
 					}, [
-						react.createElement(FieldRow, { t, key: "hid", labelKey: "hiddenReloadMs" },
+						react.createElement(FieldRow, { t, key: "hid", labelKey: "hiddenReloadSec", hintKey: "hiddenReloadSecHint" },
 							react.createElement("input", {
 								className: "dshatt_input",
 								type: "number",
 								min: "0",
-								step: "500",
-								value: String(wakeView.hiddenReloadMs ?? 8000),
-								onChange: (event) => patchCard("wake", { hiddenReloadMs: event.target.value })
+								max: "86400",
+								step: "1",
+								value: String(Math.max(0, Math.round(Number(wakeView.hiddenReloadMs ?? 8000) / 1000) || 0)),
+								onChange: (event) => {
+									const raw = event.target.value;
+									if (raw === "") {
+										patchCard("wake", { hiddenReloadMs: "" });
+										return;
+									}
+									const sec = Number(raw);
+									if (!Number.isFinite(sec)) return;
+									patchCard("wake", { hiddenReloadMs: Math.max(0, Math.min(86400, Math.floor(sec))) * 1000 });
+								}
 							})),
-						react.createElement(FieldRow, { t, key: "cd", labelKey: "cooldownMs" },
+						react.createElement(FieldRow, { t, key: "cd", labelKey: "cooldownMs", hintKey: "cooldownMsHint" },
 							react.createElement("input", {
 								className: "dshatt_input",
 								type: "number",
@@ -650,6 +775,16 @@ window.__ModuleLoader__.load({
 			document.addEventListener("input", onInput, true);
 			document.addEventListener("keydown", onInput, true);
 
+			const applyHiddenReload = (config) => {
+				if (!config || disposed) return;
+				if (Number.isFinite(Number(config.hiddenReloadMs))) {
+					hiddenReloadMs = Math.max(0, Math.floor(Number(config.hiddenReloadMs)));
+				}
+			};
+
+			const onConfig = (event) => applyHiddenReload(event?.detail);
+			window.addEventListener("dsh-attention-config", onConfig);
+
 			const maybeReload = (reason) => {
 				if (disposed) return;
 				if (typingRecently(lastInputAt, Date.now())) {
@@ -665,29 +800,35 @@ window.__ModuleLoader__.load({
 			};
 
 			const onVisibility = () => {
+				ensureTitleMark();
 				postPresence(currentSessionId(sessions));
 				if (document.visibilityState === "hidden") {
 					hiddenAt = Date.now();
 					return;
 				}
 				consume();
-				if (hiddenAt > 0 && Date.now() - hiddenAt >= hiddenReloadMs) {
-					maybeReload("visibilitychange");
-				}
+				const elapsed = hiddenAt > 0 ? Date.now() - hiddenAt : 0;
 				hiddenAt = 0;
+				void readConfig().then((config) => {
+					applyHiddenReload(config);
+					if (elapsed >= hiddenReloadMs) maybeReload("visibilitychange");
+				});
 			};
 
 			const onFreeze = () => { hiddenAt = Date.now(); };
 			const onResume = () => {
 				postPresence(currentSessionId(sessions));
 				consume();
-				if (hiddenAt > 0 && Date.now() - hiddenAt >= hiddenReloadMs) {
-					maybeReload("page-resume");
-				}
+				const elapsed = hiddenAt > 0 ? Date.now() - hiddenAt : 0;
 				hiddenAt = 0;
+				void readConfig().then((config) => {
+					applyHiddenReload(config);
+					if (elapsed >= hiddenReloadMs) maybeReload("page-resume");
+				});
 			};
 
 			const onWindowFocus = () => {
+				ensureTitleMark();
 				postPresence(currentSessionId(sessions));
 				consume();
 			};
@@ -713,23 +854,19 @@ window.__ModuleLoader__.load({
 			}, HEARTBEAT_MS);
 
 			const presenceTimer = setInterval(() => {
-				postPresence(currentSessionId(sessions));
 				ensureTitleMark();
+				postPresence(currentSessionId(sessions));
 			}, PRESENCE_MS);
 
 			const focusTimer = setInterval(() => {
 				consume();
 			}, FOCUS_POLL_MS);
 
-			postPresence(currentSessionId(sessions));
 			ensureTitleMark();
+			postPresence(currentSessionId(sessions));
 			consume();
 
-			void readConfig().then((config) => {
-				if (!disposed && Number.isFinite(Number(config.hiddenReloadMs))) {
-					hiddenReloadMs = Math.max(0, Math.floor(Number(config.hiddenReloadMs)));
-				}
-			});
+			void readConfig().then(applyHiddenReload);
 
 			const dispose = () => {
 				disposed = true;
@@ -742,6 +879,7 @@ window.__ModuleLoader__.load({
 				document.removeEventListener("resume", onResume);
 				window.removeEventListener("focus", onWindowFocus);
 				window.removeEventListener("blur", onWindowBlur);
+				window.removeEventListener("dsh-attention-config", onConfig);
 				window.removeEventListener("hashchange", onHash);
 				document.removeEventListener("input", onInput, true);
 				document.removeEventListener("keydown", onInput, true);
