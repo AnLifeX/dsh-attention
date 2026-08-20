@@ -46,22 +46,53 @@ export function trimSlash(url) {
   return String(url ?? DEFAULT_WEB_URL).replace(/\/+$/, '')
 }
 
+export function asBool(value, fallback) {
+  if (value === false || value === 0 || value === 'false' || value === '0') return false
+  if (value === true || value === 1 || value === 'true' || value === '1') return true
+  return fallback
+}
+
+export function notifyStyleOf(value) {
+  return value === 'system' ? 'system' : 'custom'
+}
+
 /**
  * 提问能否在 Toast 上直接点选：仅单题、单选、1–3 个选项。
- * 多题 / 多选 / 自由文本只能「打开页面」去网页里答。
+ * 多题 / 多选 / 更多选项走独立回复小窗。
  */
-export function questionToastActions(questions) {
-  if (!Array.isArray(questions) || questions.length !== 1) return []
+export function questionToastMode(questions) {
+  if (!Array.isArray(questions) || questions.length !== 1) return 'compose'
   const item = questions[0]
-  if (!item || item.multiSelect === true) return []
+  if (!item || item.multiSelect === true) return 'compose'
   const options = Array.isArray(item.options) ? item.options : []
-  if (options.length < 1 || options.length > 3) return []
+  if (options.length < 1 || options.length > 3) return 'compose'
+  return 'buttons'
+}
+
+export function questionToastActions(questions) {
+  if (questionToastMode(questions) !== 'buttons') return []
+  const item = questions[0]
+  const options = Array.isArray(item.options) ? item.options : []
   return options.map((option, index) => ({
     id: `opt${index}`,
     label: clip(option?.label ?? `选项${index + 1}`, 16),
     selected: String(option?.label ?? ''),
     questionId: String(item.id ?? ''),
   }))
+}
+
+/** 按 host matchesQuestions 规则拼一整批答案。 */
+export function buildQuestionAnswers(questions, picked) {
+  const list = Array.isArray(questions) ? questions : []
+  const selected = Array.isArray(picked?.selected) ? picked.selected.map((item) => String(item)) : []
+  const custom = typeof picked?.custom === 'string' && picked.custom.trim() ? picked.custom.trim() : undefined
+  return list.map((question, index) => {
+    const id = String(question?.id ?? '')
+    const match = picked?.questionId ? id === String(picked.questionId) : index === 0
+    if (!match) return { id, selected: [] }
+    if (custom && question?.multiSelect !== true) return { id, selected: [], custom }
+    return { id, selected, ...(custom ? { custom } : {}) }
+  })
 }
 
 export function shortSessionId(sessionId) {

@@ -17,16 +17,27 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($aumid).Show($toast)
 `.trim()
 
-export function buildToastXml({ title, lines, launchUrl, actions, sound }) {
+export function buildToastXml({ title, lines, launchUrl, actions, sound, imageUrl, attribution }) {
+  const image = imageUrl
+    ? `<image placement="appLogoOverride" hint-crop="circle" src="${xmlEscape(imageUrl)}"/>`
+    : ''
+  const attr = attribution
+    ? `<text placement="attribution">${xmlEscape(attribution)}</text>`
+    : ''
   const textNodes = [title, ...(lines ?? [])]
     .filter((line) => String(line ?? '').trim() !== '')
     .slice(0, 3)
-    .map((line) => `<text>${xmlEscape(line)}</text>`)
+    .map((line, index) => (index === 0
+      ? `<text hint-maxLines="2">${xmlEscape(line)}</text>`
+      : `<text hint-maxLines="3">${xmlEscape(line)}</text>`))
     .join('')
 
-  const actionNodes = (actions ?? []).slice(0, 5).map((action) => (
-    `<action content="${xmlEscape(action.label)}" activationType="protocol" arguments="${xmlEscape(action.url)}"/>`
-  )).join('')
+  const actionNodes = (actions ?? []).slice(0, 5).map((action) => {
+    const style = action.style === 'success' || action.style === 'critical'
+      ? ` hint-buttonStyle="${action.style === 'success' ? 'Success' : 'Critical'}"`
+      : ''
+    return `<action content="${xmlEscape(action.label)}" activationType="protocol" arguments="${xmlEscape(action.url)}"${style}/>`
+  }).join('')
 
   const actionsBlock = actionNodes ? `<actions>${actionNodes}</actions>` : ''
   const audio = sound
@@ -36,7 +47,7 @@ export function buildToastXml({ title, lines, launchUrl, actions, sound }) {
     ? ` activationType="protocol" launch="${xmlEscape(launchUrl)}"`
     : ''
 
-  return `<toast${launch} duration="long" scenario="reminder"><visual><binding template="ToastGeneric">${textNodes}</binding></visual>${actionsBlock}${audio}</toast>`
+  return `<toast${launch} duration="long" scenario="reminder"><visual><binding template="ToastGeneric">${image}${textNodes}${attr}</binding></visual>${actionsBlock}${audio}</toast>`
 }
 
 export function fireToast(ctx, cfg, xml) {
