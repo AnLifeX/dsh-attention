@@ -28,12 +28,51 @@ Add-Type -AssemblyName System.Web.Extensions
 if (-not ('DshAttention.Native' -as [type])) {
   Add-Type -TypeDefinition @"
 using System;
+using System.Text;
 using System.Runtime.InteropServices;
 public static class DshAttentionNative {
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
   [DllImport("gdi32.dll")] public static extern IntPtr CreateRoundRectRgn(int l, int t, int r, int b, int w, int h);
   [DllImport("user32.dll")] public static extern bool ReleaseCapture();
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageStr(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+  [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr hWnd, bool fAltTab);
+  [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(int dwProcessId);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextLength(IntPtr hWnd);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, int dwFlags, int dwExtraInfo);
+
+  public static string ListVisibleWindows() {
+    var sb = new StringBuilder();
+    EnumWindows(delegate(IntPtr h, IntPtr l) {
+      if (h == IntPtr.Zero) return true;
+      if (!IsWindowVisible(h) && !IsIconic(h)) return true;
+      int len = GetWindowTextLength(h);
+      if (len <= 0) return true;
+      var buf = new StringBuilder(len + 1);
+      GetWindowText(h, buf, buf.Capacity);
+      uint pid = 0;
+      GetWindowThreadProcessId(h, out pid);
+      sb.Append(h.ToInt64());
+      sb.Append('\t');
+      sb.Append(pid);
+      sb.Append('\t');
+      sb.Append(buf.ToString().Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' '));
+      sb.Append('\n');
+      return true;
+    }, IntPtr.Zero);
+    return sb.ToString();
+  }
 }
 "@
 }
@@ -55,9 +94,22 @@ $kind = [string]$data.kind
 $session = [string]$data.session
 
 function LabelOf([string]$Name, [string]$Fallback) {
-  $value = $labels.$Name
-  if ($value) { return [string]$value }
+  $value = $null
+  if ($labels) {
+    try {
+      $prop = $labels.PSObject.Properties[$Name]
+      if ($prop) { $value = $prop.Value }
+    } catch {}
+  }
+  if ($null -ne $value -and [string]$value -ne '') { return [string]$value }
   return $Fallback
+}
+
+# ASCII-only source: Chinese fallbacks via code points so PS 5.1 never depends on file encoding.
+function U {
+  $sb = New-Object System.Text.StringBuilder
+  foreach ($n in $args) { [void]$sb.Append([char][int]$n) }
+  return $sb.ToString()
 }
 
 function ConvertTo-InboxJson($Obj) {
@@ -73,26 +125,154 @@ function Write-Inbox($Obj) {
   Write-ActLog ('inbox a=' + $Obj['a'])
 }
 
-function Focus-ExistingDsh {
-  $webUrl = [string]$data.webUrl
-  if (-not $webUrl) { $webUrl = 'http://127.0.0.1:3080' }
-  $hostHint = '127.0.0.1:3080'
-  $port = 3080
+function Test-SameHwnd([IntPtr]$A, [IntPtr]$B) {
+  if ($A -eq [IntPtr]::Zero -or $B -eq [IntPtr]::Zero) { return $false }
+  return ($A.ToInt64() -eq $B.ToInt64())
+}
+
+function Activate-Hwnd([IntPtr]$Hwnd) {
+  if ($Hwnd -eq [IntPtr]::Zero) { return $false }
   try {
-    $u = [Uri]$webUrl
-    if ($u.Authority) { $hostHint = $u.Authority }
-    if ($u.Port -gt 0) { $port = [int]$u.Port }
-  } catch {}
-  $titlePat = 'DeepSeek|Harness|\bdsh\b|' + [regex]::Escape($hostHint) + '|localhost:' + [regex]::Escape([string]$port)
-  foreach ($proc in Get-Process | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }) {
-    $title = [string]$proc.MainWindowTitle
-    if (-not $title -or $title -notmatch $titlePat) { continue }
-    try {
-      $wshell = New-Object -ComObject WScript.Shell
-      if ($wshell.AppActivate($proc.Id)) { return }
-      if ($wshell.AppActivate($title)) { return }
-    } catch {}
+    [void][DshAttentionNative]::AllowSetForegroundWindow(-1)
+    if ([DshAttentionNative]::IsIconic($Hwnd)) {
+      [void][DshAttentionNative]::ShowWindow($Hwnd, 9)
+    } else {
+      [void][DshAttentionNative]::ShowWindow($Hwnd, 5)
+    }
+    $fg = [DshAttentionNative]::GetForegroundWindow()
+    $unused = [uint32]0
+    $targetTid = [DshAttentionNative]::GetWindowThreadProcessId($Hwnd, [ref]$unused)
+    $fgTid = [DshAttentionNative]::GetWindowThreadProcessId($fg, [ref]$unused)
+    $curTid = [DshAttentionNative]::GetCurrentThreadId()
+    if ($fgTid -ne 0 -and $fgTid -ne $curTid) {
+      [void][DshAttentionNative]::AttachThreadInput($curTid, $fgTid, $true)
+    }
+    if ($targetTid -ne 0 -and $targetTid -ne $curTid) {
+      [void][DshAttentionNative]::AttachThreadInput($curTid, $targetTid, $true)
+    }
+    [DshAttentionNative]::keybd_event(0x12, 0, 0, 0)
+    [void][DshAttentionNative]::BringWindowToTop($Hwnd)
+    [void][DshAttentionNative]::SetForegroundWindow($Hwnd)
+    [DshAttentionNative]::SwitchToThisWindow($Hwnd, $true)
+    [DshAttentionNative]::keybd_event(0x12, 0, 2, 0)
+    if ($fgTid -ne 0 -and $fgTid -ne $curTid) {
+      [void][DshAttentionNative]::AttachThreadInput($curTid, $fgTid, $false)
+    }
+    if ($targetTid -ne 0 -and $targetTid -ne $curTid) {
+      [void][DshAttentionNative]::AttachThreadInput($curTid, $targetTid, $false)
+    }
+    Start-Sleep -Milliseconds 60
+    $now = [DshAttentionNative]::GetForegroundWindow()
+    $ok = Test-SameHwnd $now $Hwnd
+    Write-ActLog ('activate hwnd=' + $Hwnd.ToInt64() + ' fg=' + $now.ToInt64() + ' ok=' + $ok)
+    return $ok
+  } catch {
+    Write-ActLog ('activate-error=' + $_.Exception.Message)
+    return $false
   }
+}
+
+function Get-DshNeedles {
+  $needles = New-Object System.Collections.ArrayList
+  foreach ($n in @($data.windowTitle, $data.appTitle)) {
+    $text = ([string]$n).Trim()
+    if ($text) { [void]$needles.Add($text) }
+  }
+  try {
+    $focusFile = Join-Path $work 'ui-focus.json'
+    if (Test-Path -LiteralPath $focusFile) {
+      $focus = [System.IO.File]::ReadAllText($focusFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+      $text = ([string]$focus.title).Trim()
+      if ($text) { [void]$needles.Add($text) }
+    }
+  } catch {}
+  foreach ($n in @('DeepSeek Harness', 'DeepSeek', '127.0.0.1:3080', 'localhost:3080')) {
+    [void]$needles.Add($n)
+  }
+  $unique = New-Object System.Collections.ArrayList
+  foreach ($n in $needles) {
+    $dup = $false
+    foreach ($u in $unique) { if ($u -eq $n) { $dup = $true; break } }
+    if (-not $dup) { [void]$unique.Add($n) }
+  }
+  $arr = @($unique | Sort-Object { ([string]$_).Length } -Descending)
+  return , $arr
+}
+
+function Test-BrowserProcess([string]$Name) {
+  return ($Name -match '^(msedge|chrome|firefox|brave|opera|vivaldi|ApplicationFrameHost|msedgewebview2)$')
+}
+
+function Score-DshTitle([string]$Title, $Needles) {
+  if (-not $Title) { return 0 }
+  $score = 0
+  foreach ($n in @($Needles)) {
+    if (-not $n) { continue }
+    if ($Title.Contains([string]$n)) { $score += 100 + ([string]$n).Length; break }
+  }
+  if ($Title -match 'DeepSeek\s*Harness') { $score += 80 }
+  elseif ($Title -match 'DeepSeek|Harness|\bdsh\b') { $score += 25 }
+  if ($Title -match '127\.0\.0\.1:3080|localhost:3080') { $score += 40 }
+  if ($Title -notmatch 'Microsoft Edge\s*$') { $score += 15 }
+  return $score
+}
+
+function Find-DshHwnd {
+  $needles = @(Get-DshNeedles)
+  $dump = ''
+  try { $dump = [DshAttentionNative]::ListVisibleWindows() } catch {
+    Write-ActLog ('enum-error=' + $_.Exception.Message)
+  }
+  $bestHwnd = [IntPtr]::Zero
+  $bestScore = 0
+  $bestTitle = ''
+  $sawBrowser = 0
+  if ($dump) {
+    foreach ($line in $dump.Split([char]10)) {
+      if (-not $line) { continue }
+      $parts = $line.Split([char]9)
+      if ($parts.Count -lt 3) { continue }
+      $hwndNum = 0L
+      $pidNum = 0
+      if (-not [int64]::TryParse($parts[0], [ref]$hwndNum)) { continue }
+      if (-not [int]::TryParse($parts[1], [ref]$pidNum)) { continue }
+      $title = [string]$parts[2]
+      if (-not $title) { continue }
+      $procName = ''
+      try { $procName = [string](Get-Process -Id $pidNum -ErrorAction Stop).ProcessName } catch { $procName = '' }
+      $browser = Test-BrowserProcess $procName
+      if ($browser) { $sawBrowser++ }
+      $score = Score-DshTitle $title $needles
+      if ($score -le 0) { continue }
+      if (-not $browser -and $score -lt 80) { continue }
+      if ($browser) { $score += 10 }
+      if ($score -gt $bestScore) {
+        $bestScore = $score
+        $bestHwnd = [IntPtr]$hwndNum
+        $bestTitle = $title
+      }
+    }
+  }
+  if ($bestScore -gt 0 -and $bestHwnd -ne [IntPtr]::Zero) {
+    Write-ActLog ('found score=' + $bestScore + ' title=' + $bestTitle)
+    return $bestHwnd
+  }
+  Write-ActLog ('focus-miss no-title-match browsers=' + $sawBrowser + ' needles=' + $needles.Count)
+  return [IntPtr]::Zero
+}
+
+function Focus-ExistingDsh {
+  $hwnd = Find-DshHwnd
+  if ($hwnd -eq [IntPtr]::Zero) {
+    Start-Sleep -Milliseconds 250
+    [System.Windows.Forms.Application]::DoEvents()
+    $hwnd = Find-DshHwnd
+  }
+  if ($hwnd -eq [IntPtr]::Zero) { return $false }
+  $ok = Activate-Hwnd $hwnd
+  if ($ok) { Write-ActLog 'focus-ok verified' }
+  else { Write-ActLog 'focus-fake SetForegroundWindow ignored' }
+  return $ok
 }
 
 function Apply-Cue($Box, [string]$Text) {
@@ -224,17 +404,50 @@ function New-TextButton([string]$Caption, [int]$Width = 52) {
   return $btn
 }
 
+function Open-NewSessionUrl {
+  $url = [string]$data.openUrl
+  if (-not $url) { $url = [string]$data.webUrl }
+  if (-not $url) { $url = 'http://127.0.0.1:3080' }
+  Start-Process $url | Out-Null
+  Write-ActLog ('open-new url=' + $url)
+}
+
+function Test-ReuseSession {
+  $mode = [string]$data.openSessionMode
+  if ($mode -eq 'new') { return $false }
+  if ($data.reuseSession -eq $false) { return $false }
+  return $true
+}
+
 function Open-ExistingSession {
   try {
     Write-Inbox @{ t = $Token; a = 'open' }
-    Focus-ExistingDsh
+    $form.TopMost = $false
+    [System.Windows.Forms.Application]::DoEvents()
+    if (-not (Test-ReuseSession)) {
+      Open-NewSessionUrl
+      $form.Hide()
+      Close-Soon
+      return
+    }
+    $ok = Focus-ExistingDsh
+    if (-not $ok) {
+      Write-ActLog 'open-no-window'
+      $form.TopMost = $true
+      $err.Text = LabelOf 'focusMiss' (U 0x627E 0x4E0D 0x5230 0x5DF2 0x6253 0x5F00 0x7684 0x20 0x64 0x73 0x68 0x20 0x7A97 0x53E3)
+      if (-not $form.Controls.Contains($err)) { $form.Controls.Add($err) }
+      return
+    }
+    $form.Hide()
+    Close-Soon
   } catch {
     Write-ActLog ('open-click-error=' + $_.Exception.Message)
   }
 }
 
 function Add-OpenSessionButton([int]$X, [int]$Y) {
-  $btn = New-TextButton (LabelOf 'openSession' 'Open') 80
+  $caption = LabelOf 'openSession' (U 0x56DE 0x5230 0x4F1A 0x8BDD)
+  $btn = New-TextButton -Caption $caption -Width 88
   $btn.Location = New-Object System.Drawing.Point $X, $Y
   $btn.Add_Click({ Open-ExistingSession })
   $form.Controls.Add($btn)
@@ -273,14 +486,7 @@ $kicker.Location = New-Object System.Drawing.Point $pad, 8
 $kicker.Size = New-Object System.Drawing.Size ($innerW - 28), 16
 $kicker.Cursor = [System.Windows.Forms.Cursors]::Hand
 $header.Controls.Add($kicker)
-$kicker.Add_Click({
-  try {
-    Write-Inbox @{ t = $Token; a = 'open' }
-    Focus-ExistingDsh
-  } catch {
-    Write-ActLog ('open-click-error=' + $_.Exception.Message)
-  }
-})
+$kicker.Add_Click({ Open-ExistingSession })
 
 $close = New-Object System.Windows.Forms.Button
 $close.UseVisualStyleBackColor = $false
@@ -418,7 +624,7 @@ if ($kind -eq 'question') {
     $hint.AutoSize = $false
     $hint.Font = $fontSmall
     $hint.ForeColor = $muted
-    $hint.Text = LabelOf 'customPlaceholder' '...'
+    $hint.Text = LabelOf 'customPlaceholder' (U 0x8F93 0x5165 0x4F60 0x7684 0x7B54 0x6848)
     $hint.Size = New-Object System.Drawing.Size $innerW, 16
     $hint.Location = New-Object System.Drawing.Point 0, $oy
     $optHost.Controls.Add($hint)
@@ -601,7 +807,7 @@ Place-BottomRight
 $form.Add_Shown({
   Apply-Round
   Place-BottomRight
-  $cue = LabelOf 'customPlaceholder' '...'
+  $cue = LabelOf 'customPlaceholder' (U 0x8F93 0x5165 0x4F60 0x7684 0x7B54 0x6848)
   foreach ($qid in @($script:customBoxes.Keys)) {
     Apply-Cue $script:customBoxes[$qid] $cue
   }

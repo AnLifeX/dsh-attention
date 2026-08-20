@@ -18,6 +18,15 @@ export function pendingPath(token) {
   return join(workDir(), `pending-${String(token)}.json`)
 }
 
+export function focusStatePath() {
+  return join(workDir(), 'ui-focus.json')
+}
+
+export function writeFocusState(data) {
+  ensureWorkDir()
+  writeFileSync(focusStatePath(), `${JSON.stringify(data)}\n`, 'utf8')
+}
+
 export function choiceWindowPath() {
   return join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'choice-window.ps1')
 }
