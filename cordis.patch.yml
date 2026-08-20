@@ -8,6 +8,9 @@
         rootsOnly: true
         notifyApproval: true
         notifyQuestion: true
+        notifyIdle: true
+        notifyStyle: custom
+        focusAfterReply: false
         webUrl: http://127.0.0.1:3080
         hiddenReloadMs: 8000
         cooldownMs: 1500
