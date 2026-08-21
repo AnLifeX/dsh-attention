@@ -1,50 +1,32 @@
 # dsh-attention
 
-DeepSeek Harness 插件：当会话需要你处理 **审批 / 提问 / 选择**，或一轮对话结束时，弹出可点击的 Windows 系统通知；浏览器标签休眠后唤醒时强制重连，避免提权卡片卡死。
+DeepSeek Harness 插件：会话需要 **审批 / 提问 / 选择**，或一轮对话结束时，在屏幕右下角弹出可操作的提醒；浏览器标签休眠后再回来时自动刷新，避免审批卡片卡住。
 
-和现成的 `dsh-notify`（任务结束提示）、`dsh-approval-notify`（仅提权提示、不能在卡片里点允许）不同：这里的 Toast **可以允许 / 拒绝 / 直接回复 / 发送下一步**，并且带休眠唤醒。
+## 功能
 
-## 为什么能在网页休眠时还通知到
-
-通知走 **dsh 宿主 Node 进程**，不是浏览器 `Notification`。标签被 Edge/Chrome 冻住时 JS 停了，但宿主还在跑，`events.mux` 上的 `approval/requested` / `question/requested` 以及 `host/session-status` 照样能弹 Toast。
-
-点 Toast 只会提醒；真正点选走屏幕右下角的 **原生选择窗**（Windows Forms）。点一个选项就会提交，会话继续。系统通知上的自定义协议在未打包应用里经常点了没反应，所以选项不再放在 Toast 按钮上。内部仍用 `apiProxy.respond` / `sessions.prompt`。不抢 Web UI 的审批座位：网页卡片仍然会出现。
-
-「打开页面」或点击通知本体：先找已有的 dsh 窗口或已安装的 PWA 并前置，找不到才打开 `webUrl`，同时让前端切到对应会话。不要把 Toast 按钮做成 `http://` 链接，Windows 会强制新开标签（包括 PWA 安装提示）。
-
-dsh 标签页当前正在聚焦时不弹通知；只有切到别的窗口、别的标签，或页面隐藏时才会 Toast。
+- **网页休眠也能提醒。** 通知由 dsh 宿主发出，不走浏览器 `Notification`。标签被冻住时 JavaScript 停了，审批、提问、会话结束照样能弹窗。
+- **卡片上直接处理。** 允许 / 拒绝、单选 / 多选、自定义输入（标题为「其他」）、写下一步，点完即提交，会话继续。不抢网页上的审批卡片。
+- **跟着 dsh 主题。** 自制卡片亮色 / 暗色与当前页面一致，毛玻璃圆角；底部倒计时条从绿变到红。
+- **两种卡片样式，二选一。** 默认自制卡片可在窗口里操作；系统通知卡片只负责点回会话。
+- **回到已有会话。** 「回到会话」优先前置已经打开的 dsh 窗口或 Edge 应用，并切到对应会话；也可每次新开。
+- **当前窗口不打扰。** dsh 标签正在聚焦时不弹；切到别的窗口、标签，或页面隐藏时才提醒。
+- **设置页可调。** 打开 **设置 → 提醒**（铃铛），改完点 **保存**，写入 `%USERPROFILE%\.dsh\dsh-attention-ui.json`，重启仍在。
 
 ## 安装
-
-Windows 上 profile 在 C:、源码在 D: 时，**不要**直接 `add D:\...`，也**不要**做跨盘 junction。pnpm 的 `file:` 用硬链接，跨盘会失败。先镜像到 C: 再 `file:` 安装：
-
-```powershell
-# 在仓库根目录
-.\install-local.ps1
-```
-
-脚本会：
-
-1. `robocopy /MIR` 到 `%USERPROFILE%\.dsh\profiles\web\dsh-attention-local`（排除 `.git` / `node_modules`）
-2. 删掉旧的 `node_modules/dsh-attention`（避免 pnpm 因版本未变而漏拷新文件）
-3. `dsh plugin --profile web add file:<上述 C 盘路径>`
-
-改完 D: 源码后重新跑一遍脚本，再重启 `dsh web`。镜像不是实时软链。
-
-GitHub 推上去之后也可以：
 
 ```bash
 dsh plugin --profile web add github:Gaq152/dsh-attention
 ```
 
+装完后重启 `dsh web`。
+
 ## 用法
 
-1. 模型申请 `danger-full-access` 等提权：系统通知出现「允许一次 / 拒绝 / 打开页面」。
-2. `ask_user_question`：右下角弹出选择窗，**点选项即提交**（单选不必再点提交）。多选 / 多题时先勾选再点提交。
-3. 一轮对话结束：右下角窗口写下一步并发送；点通知本体或「打开会话」会切到该会话。
-4. 自制卡片用「回到会话」切回已有页面；点允许 / 拒绝 / 选项只后台提交。
-5. 标签休眠后再回来：若隐藏超过约 8 秒，页面会自动刷新一次（等同 F5），把还挂着的审批卡片重放出来。正在输入时不会刷新。
-6. 打开 **设置 → 提醒**（铃铛图标）：用卡片开关通知范围、卡片样式、休眠刷新。每张卡片改完后点 **保存**，写入 `%USERPROFILE%\.dsh\dsh-attention-ui.json`，重启仍在。
+1. 模型申请提权：右下角出现允许 / 拒绝；点「回到会话」切回该会话。
+2. 提问 / 选择：单选点选项即提交；多选或多题先勾选再点提交；也可在「其他」里自己写答案。
+3. 一轮对话结束：在窗口里写下一步并发送。
+4. 标签休眠后再回来：隐藏超过约 8 秒会自动刷新一次（等同 F5），把还挂着的审批卡片重放出来。正在输入时不会刷新。
+5. 在 **设置 → 提醒** 里开关通知范围、卡片样式、停留时间、回到会话方式、休眠刷新。
 
 ## 配置
 
@@ -57,7 +39,9 @@ dsh plugin --profile web add github:Gaq152/dsh-attention
 | `notifyApproval` | `true` | 提权审批 |
 | `notifyQuestion` | `true` | 提问 / 选择 |
 | `notifyIdle` | `true` | 一轮对话结束后的下一步输入 |
-| `notifyTimeoutSec` | `30` | 通知停留秒数；`0` 一直留到关掉 |
+| `notifyStyle` | `custom` | `custom` 自制卡片；`system` 系统通知 |
+| `notifyTimeoutSec` | `30` | 停留秒数；`0` 一直留到关掉。系统通知实际只有约 7 秒 / 25 秒两档 |
+| `openSessionMode` | `reuse` | `reuse` 复用已有窗口；`new` 每次新开 |
 | `webUrl` | `http://127.0.0.1:3080` | 回环回调与找不到窗口时的打开地址 |
 | `hiddenReloadMs` | `8000` | 标签隐藏多久后唤醒要刷新（毫秒；设置页按秒填写） |
 | `cooldownMs` | `1500` | 同一会话通知去抖 |
@@ -67,8 +51,8 @@ dsh plugin --profile web add github:Gaq152/dsh-attention
 
 ## 局限
 
-- 选择 / 允许 / 下一步走右下角原生窗口，不依赖 Toast 按钮回调。系统通知本身做不到可靠的选项回传（没有 Windows 应用身份 / COM 激活器）。
-- 自动刷新是对官方 mux 无心跳 / `resync` 丢掉 pending 的缓解，不是给 ConnectionController 打补丁。
+- 选择 / 允许 / 下一步走右下角自制窗口，不依赖系统通知按钮回调。
+- 自动刷新是对标签休眠后 pending 卡片丢失的缓解，不是给连接层打补丁。
 - Windows 10 使用 PowerShell 5.1 的 WinRT Toast；首次加载插件时会在当前用户注册 `dsh-attention:` 协议。
 - 非 Windows 宿主不弹通知，但客户端唤醒逻辑仍可用。
-- 「打开页面」按窗口标题 / PWA 名称匹配；dsh 若在后台标签里，可能只能把整个浏览器前置，不会新开窗口。
+- 「回到会话」按窗口标题 / PWA 名称匹配；dsh 若在后台标签里，可能只能把整个浏览器前置。普通浏览器标签建议选「新开」。
