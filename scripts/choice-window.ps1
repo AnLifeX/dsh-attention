@@ -1,5 +1,5 @@
 # Compact toast-like picker. ASCII-only for Windows PowerShell 5.1.
-# UI strings come from the pending JSON written by the Node plugin.
+# UI is WPF glass (anti-aliased corners). Strings come from pending JSON.
 param(
   [Parameter(Mandatory = $true)]
   [string]$Token
@@ -20,10 +20,10 @@ trap {
 }
 Write-ActLog ('start token=' + $Token)
 
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationCore
+Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Web.Extensions
-[System.Windows.Forms.Application]::EnableVisualStyles()
 
 if (-not ('DshAttention.Native' -as [type])) {
   Add-Type -TypeDefinition @"
@@ -32,10 +32,6 @@ using System.Text;
 using System.Runtime.InteropServices;
 public static class DshAttentionNative {
   public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-  [DllImport("gdi32.dll")] public static extern IntPtr CreateRoundRectRgn(int l, int t, int r, int b, int w, int h);
-  [DllImport("user32.dll")] public static extern bool ReleaseCapture();
-  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
-  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageStr(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -105,7 +101,6 @@ function LabelOf([string]$Name, [string]$Fallback) {
   return $Fallback
 }
 
-# ASCII-only source: Chinese fallbacks via code points so PS 5.1 never depends on file encoding.
 function U {
   $sb = New-Object System.Text.StringBuilder
   foreach ($n in $args) { [void]$sb.Append([char][int]$n) }
@@ -265,7 +260,6 @@ function Focus-ExistingDsh {
   $hwnd = Find-DshHwnd
   if ($hwnd -eq [IntPtr]::Zero) {
     Start-Sleep -Milliseconds 250
-    [System.Windows.Forms.Application]::DoEvents()
     $hwnd = Find-DshHwnd
   }
   if ($hwnd -eq [IntPtr]::Zero) { return $false }
@@ -275,133 +269,258 @@ function Focus-ExistingDsh {
   return $ok
 }
 
-function Apply-Cue($Box, [string]$Text) {
-  if (-not $Box -or -not $Text) { return }
+function Resolve-Theme {
+  $t = [string]$data.theme
+  if ($t -eq 'dark' -or $t -eq 'light') { return $t }
   try {
-    [void][DshAttentionNative]::SendMessageStr($Box.Handle, 0x1501, [IntPtr]1, $Text)
+    $focusFile = Join-Path $work 'ui-focus.json'
+    if (Test-Path -LiteralPath $focusFile) {
+      $focus = [System.IO.File]::ReadAllText($focusFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+      $ft = [string]$focus.theme
+      if ($ft -eq 'dark' -or $ft -eq 'light') { return $ft }
+    }
   } catch {}
+  try {
+    $v = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name 'AppsUseLightTheme' -ErrorAction Stop).AppsUseLightTheme
+    if ([int]$v -eq 0) { return 'dark' }
+  } catch {}
+  return 'light'
 }
 
-function New-Color($R, $G, $B) {
-  return [System.Drawing.Color]::FromArgb($R, $G, $B)
+function New-Brush([byte]$A, [byte]$R, [byte]$G, [byte]$B) {
+  $c = [System.Windows.Media.Color]::FromArgb($A, $R, $G, $B)
+  $br = New-Object System.Windows.Media.SolidColorBrush $c
+  if ($br.CanFreeze) { $br.Freeze() }
+  return $br
 }
 
-function Measure-TextHeight([string]$Text, $Font, [int]$Width, [int]$MinH, [int]$MaxH) {
-  $flags = [System.Windows.Forms.TextFormatFlags]::WordBreak
-  $size = [System.Windows.Forms.TextRenderer]::MeasureText(
-    $Text,
-    $Font,
-    (New-Object System.Drawing.Size $Width, 400),
-    $flags
+function Lerp-Byte([int]$A, [int]$B, [double]$T) {
+  if ($T -lt 0) { $T = 0 }
+  if ($T -gt 1) { $T = 1 }
+  return [byte][Math]::Round($A + ($B - $A) * $T)
+}
+
+function Get-TimerBrush([double]$Ratio) {
+  $g = @(16, 185, 129)
+  $y = @(234, 179, 8)
+  $r = @(239, 68, 68)
+  if ($Ratio -ge 0.5) {
+    $t = (1.0 - $Ratio) / 0.5
+    return New-Brush 255 (Lerp-Byte $g[0] $y[0] $t) (Lerp-Byte $g[1] $y[1] $t) (Lerp-Byte $g[2] $y[2] $t)
+  }
+  $t = (0.5 - $Ratio) / 0.5
+  return New-Brush 255 (Lerp-Byte $y[0] $r[0] $t) (Lerp-Byte $y[1] $r[1] $t) (Lerp-Byte $y[2] $r[2] $t)
+}
+
+$theme = Resolve-Theme
+Write-ActLog ('theme=' + $theme)
+
+if ($theme -eq 'dark') {
+  $brGlass = New-Brush 188 22 28 32
+  $brGlassLine = New-Brush 90 180 230 220
+  $brChip = New-Brush 150 42 52 54
+  $brChipOn = New-Brush 200 18 54 50
+  $brFg = New-Brush 255 236 242 240
+  $brMuted = New-Brush 255 156 174 170
+  $brAccent = New-Brush 255 45 212 191
+  $brAccentFg = New-Brush 255 8 32 28
+  $brOpen = New-Brush 255 59 130 246
+  $brOpenFg = New-Brush 255 255 255 255
+  $brDeny = New-Brush 255 244 63 94
+  $brDenyFg = New-Brush 255 255 255 255
+  $brDanger = New-Brush 255 248 113 113
+  $brInput = New-Brush 160 36 44 46
+} else {
+  $brGlass = New-Brush 198 255 255 255
+  $brGlassLine = New-Brush 110 255 255 255
+  $brChip = New-Brush 160 236 242 240
+  $brChipOn = New-Brush 210 204 241 236
+  $brFg = New-Brush 255 28 36 34
+  $brMuted = New-Brush 255 90 108 104
+  $brAccent = New-Brush 255 15 118 110
+  $brAccentFg = New-Brush 255 255 255 255
+  $brOpen = New-Brush 255 37 99 235
+  $brOpenFg = New-Brush 255 255 255 255
+  $brDeny = New-Brush 255 244 63 94
+  $brDenyFg = New-Brush 255 255 255 255
+  $brDanger = New-Brush 255 220 38 38
+  $brInput = New-Brush 170 245 248 247
+}
+
+$script:btnTpl = [Windows.Markup.XamlReader]::Parse(@'
+<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
+  <Border CornerRadius="10" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+    <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"/>
+  </Border>
+</ControlTemplate>
+'@)
+
+function New-UiButton {
+  param(
+    [string]$Caption,
+    $Bg,
+    $Fg,
+    [int]$Width = 0,
+    [switch]$Left
   )
-  $h = [int]$size.Height
-  if ($h -lt $MinH) { $h = $MinH }
-  if ($h -gt $MaxH) { $h = $MaxH }
-  return $h
+  $b = New-Object System.Windows.Controls.Button
+  $b.Content = $Caption
+  $b.Background = $Bg
+  $b.Foreground = $Fg
+  $b.BorderThickness = 0
+  $b.Height = 32
+  if ($Width -gt 0) { $b.Width = $Width }
+  $b.Cursor = [System.Windows.Input.Cursors]::Hand
+  $b.FontWeight = 'SemiBold'
+  $b.FontSize = 13
+  $b.FontFamily = 'Segoe UI'
+  $b.Template = $script:btnTpl
+  $b.Padding = New-Object System.Windows.Thickness 12, 0, 12, 0
+  if ($Left) { $b.HorizontalContentAlignment = 'Left' }
+  else { $b.HorizontalContentAlignment = 'Center' }
+  return $b
 }
 
-$bg = New-Color 43 43 43
-$card = New-Color 56 56 56
-$line = New-Color 78 78 78
-$fg = New-Color 232 232 232
-$muted = New-Color 156 156 156
-$accent = New-Color 214 214 214
-$sel = New-Color 70 70 70
-$hover = New-Color 64 64 64
+function New-InputBox([string]$Placeholder) {
+  $wrap = New-Object System.Windows.Controls.Border
+  $wrap.CornerRadius = New-Object System.Windows.CornerRadius 10
+  $wrap.Background = $brInput
+  $wrap.Padding = New-Object System.Windows.Thickness 10, 7, 10, 7
+  $wrap.Height = 34
+  $grid = New-Object System.Windows.Controls.Grid
+  $tb = New-Object System.Windows.Controls.TextBox
+  $tb.Background = [System.Windows.Media.Brushes]::Transparent
+  $tb.BorderThickness = 0
+  $tb.Foreground = $brFg
+  $tb.FontSize = 13
+  $tb.FontFamily = 'Segoe UI'
+  $tb.VerticalContentAlignment = 'Center'
+  $tb.CaretBrush = $brFg
+  $hint = New-Object System.Windows.Controls.TextBlock
+  $hint.Text = $Placeholder
+  $hint.Foreground = $brMuted
+  $hint.IsHitTestVisible = $false
+  $hint.VerticalAlignment = 'Center'
+  $hint.FontSize = 13
+  $tb.Add_TextChanged({
+    param($s, $e)
+    $h = $s.Tag
+    if ($h) {
+      if ([string]$s.Text) { $h.Visibility = 'Collapsed' }
+      else { $h.Visibility = 'Visible' }
+    }
+  })
+  $tb.Tag = $hint
+  [void]$grid.Children.Add($hint)
+  [void]$grid.Children.Add($tb)
+  $wrap.Child = $grid
+  return @{ Wrap = $wrap; Box = $tb }
+}
 
-$fontUi = New-Object System.Drawing.Font('Segoe UI', 9)
-$fontTitle = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
-$fontSmall = New-Object System.Drawing.Font('Segoe UI', 8)
-$fontOpt = New-Object System.Drawing.Font('Segoe UI', 9)
-
-$cardW = 332
-$pad = 12
-$optH = 30
-$optGap = 5
-$innerW = $cardW - ($pad * 2)
-
-$form = New-Object System.Windows.Forms.Form
-$form.FormBorderStyle = 'None'
-$form.StartPosition = 'Manual'
-$form.ShowInTaskbar = $false
-$form.TopMost = $true
-$form.Width = $cardW
-$form.BackColor = $bg
-$form.ForeColor = $fg
-$form.Font = $fontUi
-$form.Padding = New-Object System.Windows.Forms.Padding 0
-try {
-  $prop = $form.GetType().GetProperty('DoubleBuffered', [System.Reflection.BindingFlags]'Instance,NonPublic')
-  if ($prop) { $prop.SetValue($form, $true, $null) }
-} catch {}
-
-$busyState = @{ busy = $false }
-$err = New-Object System.Windows.Forms.Label
-$err.AutoSize = $false
-$err.ForeColor = New-Color 248 113 113
-$err.Font = $fontSmall
-$err.Height = 16
-$err.Width = $innerW
-$idleBox = $null
+$timeoutSec = 0
+try { $timeoutSec = [int]$data.timeoutSec } catch { $timeoutSec = 0 }
+$script:timeoutSec = $timeoutSec
+$script:busy = $false
 $script:picked = @{}
 $script:questions = @()
 $script:customBoxes = @{}
+$script:idleBox = $null
+
+$window = New-Object System.Windows.Window
+$window.WindowStyle = 'None'
+$window.AllowsTransparency = $true
+$window.Background = [System.Windows.Media.Brushes]::Transparent
+$window.ShowInTaskbar = $false
+$window.Topmost = $true
+$window.ResizeMode = 'NoResize'
+$window.Width = 396
+$window.SizeToContent = 'Height'
+$window.FontFamily = 'Segoe UI'
+$script:window = $window
+
+$outer = New-Object System.Windows.Controls.Grid
+$outer.Margin = New-Object System.Windows.Thickness 18
+
+$card = New-Object System.Windows.Controls.Border
+$card.CornerRadius = New-Object System.Windows.CornerRadius 18
+$card.Background = $brGlass
+$card.BorderBrush = $brGlassLine
+$card.BorderThickness = 1
+$shadow = New-Object System.Windows.Media.Effects.DropShadowEffect
+$shadow.BlurRadius = 28
+$shadow.ShadowDepth = 0
+$shadow.Opacity = 0.32
+$shadow.Color = [System.Windows.Media.Colors]::Black
+$card.Effect = $shadow
+$card.Add_MouseLeftButtonDown({
+  try { $script:window.DragMove() } catch {}
+})
+
+$dock = New-Object System.Windows.Controls.DockPanel
+$timerHost = New-Object System.Windows.Controls.Grid
+$timerHost.Height = 6
+$timerHost.Margin = New-Object System.Windows.Thickness 14, 0, 14, 10
+$timerTrack = New-Object System.Windows.Shapes.Rectangle
+$timerTrack.RadiusX = 3
+$timerTrack.RadiusY = 3
+$timerTrack.Fill = New-Brush 40 0 0 0
+$timerFill = New-Object System.Windows.Shapes.Rectangle
+$timerFill.RadiusX = 3
+$timerFill.RadiusY = 3
+$timerFill.HorizontalAlignment = 'Left'
+$timerFill.Fill = Get-TimerBrush 1
+[void]$timerHost.Children.Add($timerTrack)
+[void]$timerHost.Children.Add($timerFill)
+[System.Windows.Controls.DockPanel]::SetDock($timerHost, 'Bottom')
+[void]$dock.Children.Add($timerHost)
+$script:timerHost = $timerHost
+$script:timerFill = $timerFill
+if ($timeoutSec -le 0) { $timerHost.Visibility = 'Collapsed' }
+
+$body = New-Object System.Windows.Controls.StackPanel
+$body.Margin = New-Object System.Windows.Thickness 16, 14, 16, 8
+[void]$dock.Children.Add($body)
+
+$header = New-Object System.Windows.Controls.DockPanel
+$header.LastChildFill = $true
+$header.Margin = New-Object System.Windows.Thickness 0, 0, 0, 8
+$close = New-UiButton -Caption (LabelOf 'closeX' ([string][char]0x00D7)) -Bg (New-Brush 0 0 0 0) -Fg $brMuted -Width 28
+$close.Height = 24
+$close.FontWeight = 'Normal'
+[System.Windows.Controls.DockPanel]::SetDock($close, 'Right')
+$close.Add_Click({ $script:window.Close() })
+[void]$header.Children.Add($close)
+
+$kickerText = LabelOf 'kicker' 'dsh'
+if ($session) { $kickerText = $kickerText + '  ' + $session }
+$kicker = New-Object System.Windows.Controls.TextBlock
+$kicker.Text = $kickerText
+$kicker.Foreground = $brAccent
+$kicker.FontSize = 12
+$kicker.VerticalAlignment = 'Center'
+$kicker.Cursor = [System.Windows.Input.Cursors]::Hand
+$kicker.Add_MouseLeftButtonUp({ Open-ExistingSession })
+[void]$header.Children.Add($kicker)
+[void]$body.Children.Add($header)
+
+$errTb = New-Object System.Windows.Controls.TextBlock
+$errTb.Foreground = $brDanger
+$errTb.FontSize = 12
+$errTb.TextWrapping = 'Wrap'
+$errTb.MinHeight = 8
+$script:errTb = $errTb
 
 function Close-Soon {
-  $busyState.busy = $true
-  $err.ForeColor = $muted
-  $err.Text = LabelOf 'done' 'OK'
-  $timer = New-Object System.Windows.Forms.Timer
-  $timer.Interval = 220
-  $timer.Add_Tick({
+  $script:busy = $true
+  $script:errTb.Foreground = $brMuted
+  $script:errTb.Text = LabelOf 'done' 'OK'
+  $t = New-Object System.Windows.Threading.DispatcherTimer
+  $t.Interval = [TimeSpan]::FromMilliseconds(220)
+  $t.Add_Tick({
     $this.Stop()
-    $form.Close()
+    try { $script:window.Close() } catch {}
   })
-  $timer.Start()
-}
-
-function Enable-Drag($Control) {
-  $Control.Add_MouseDown({
-    if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
-      [void][DshAttentionNative]::ReleaseCapture()
-      [void][DshAttentionNative]::SendMessage($form.Handle, 0xA1, 0x2, 0)
-    }
-  })
-}
-
-function New-OptionButton([string]$Caption) {
-  $btn = New-Object System.Windows.Forms.Button
-  $btn.UseVisualStyleBackColor = $false
-  $btn.FlatStyle = 'Flat'
-  $btn.FlatAppearance.BorderColor = $line
-  $btn.FlatAppearance.BorderSize = 1
-  $btn.FlatAppearance.MouseOverBackColor = $hover
-  $btn.BackColor = $card
-  $btn.ForeColor = $fg
-  $btn.Font = $fontOpt
-  $btn.Height = $optH
-  $btn.Width = $innerW
-  $btn.TextAlign = 'MiddleLeft'
-  $btn.Padding = New-Object System.Windows.Forms.Padding 8, 0, 8, 0
-  $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
-  $btn.Text = $Caption
-  return $btn
-}
-
-function New-TextButton([string]$Caption, [int]$Width = 52) {
-  $btn = New-Object System.Windows.Forms.Button
-  $btn.UseVisualStyleBackColor = $false
-  $btn.FlatStyle = 'Flat'
-  $btn.FlatAppearance.BorderSize = 0
-  $btn.FlatAppearance.MouseOverBackColor = $hover
-  $btn.BackColor = $bg
-  $btn.ForeColor = $accent
-  $btn.Font = $fontTitle
-  $btn.Text = $Caption
-  $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
-  $btn.Height = 26
-  $btn.Width = $Width
-  return $btn
+  $t.Start()
 }
 
 function Open-NewSessionUrl {
@@ -422,400 +541,301 @@ function Test-ReuseSession {
 function Open-ExistingSession {
   try {
     Write-Inbox @{ t = $Token; a = 'open' }
-    $form.TopMost = $false
-    [System.Windows.Forms.Application]::DoEvents()
+    $script:window.Topmost = $false
     if (-not (Test-ReuseSession)) {
       Open-NewSessionUrl
-      $form.Hide()
+      $script:window.Hide()
       Close-Soon
       return
     }
     $ok = Focus-ExistingDsh
     if (-not $ok) {
       Write-ActLog 'open-no-window'
-      $form.TopMost = $true
-      $err.Text = LabelOf 'focusMiss' (U 0x627E 0x4E0D 0x5230 0x5DF2 0x6253 0x5F00 0x7684 0x20 0x64 0x73 0x68 0x20 0x7A97 0x53E3)
-      if (-not $form.Controls.Contains($err)) { $form.Controls.Add($err) }
+      $script:window.Topmost = $true
+      $script:errTb.Text = LabelOf 'focusMiss' (U 0x627E 0x4E0D 0x5230 0x5DF2 0x6253 0x5F00 0x7684 0x20 0x64 0x73 0x68 0x20 0x7A97 0x53E3)
       return
     }
-    $form.Hide()
+    $script:window.Hide()
     Close-Soon
   } catch {
     Write-ActLog ('open-click-error=' + $_.Exception.Message)
   }
 }
 
-function Add-OpenSessionButton([int]$X, [int]$Y) {
-  $caption = LabelOf 'openSession' (U 0x56DE 0x5230 0x4F1A 0x8BDD)
-  $btn = New-TextButton -Caption $caption -Width 88
-  $btn.Location = New-Object System.Drawing.Point $X, $Y
-  $btn.Add_Click({ Open-ExistingSession })
-  $form.Controls.Add($btn)
-  return $btn
-}
-
-function Apply-Round {
-  try {
-    $rgn = [DshAttentionNative]::CreateRoundRectRgn(0, 0, $form.Width, $form.Height, 16, 16)
-    $form.Region = [System.Drawing.Region]::FromHrgn($rgn)
-  } catch {}
-}
-
-function Place-BottomRight {
-  $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-  $form.Left = $wa.Right - $form.Width - 18
-  $form.Top = [Math]::Max($wa.Top + 16, $wa.Bottom - $form.Height - 18)
-}
-
-$y = 0
-$header = New-Object System.Windows.Forms.Panel
-$header.Location = New-Object System.Drawing.Point 0, 0
-$header.Size = New-Object System.Drawing.Size $cardW, 30
-$header.BackColor = $bg
-$form.Controls.Add($header)
-Enable-Drag $header
-
-$kickerText = LabelOf 'kicker' 'dsh'
-if ($session) { $kickerText = $kickerText + '  ' + $session }
-$kicker = New-Object System.Windows.Forms.Label
-$kicker.AutoSize = $false
-$kicker.Font = $fontSmall
-$kicker.ForeColor = $muted
-$kicker.Text = $kickerText
-$kicker.Location = New-Object System.Drawing.Point $pad, 8
-$kicker.Size = New-Object System.Drawing.Size ($innerW - 28), 16
-$kicker.Cursor = [System.Windows.Forms.Cursors]::Hand
-$header.Controls.Add($kicker)
-$kicker.Add_Click({ Open-ExistingSession })
-
-$close = New-Object System.Windows.Forms.Button
-$close.UseVisualStyleBackColor = $false
-$close.FlatStyle = 'Flat'
-$close.FlatAppearance.BorderSize = 0
-$close.FlatAppearance.MouseOverBackColor = $hover
-$close.BackColor = $bg
-$close.ForeColor = $muted
-$close.Font = $fontSmall
-$close.Text = LabelOf 'closeX' 'x'
-$close.Size = New-Object System.Drawing.Size 26, 22
-$close.Location = New-Object System.Drawing.Point ($cardW - 30), 4
-$close.Cursor = [System.Windows.Forms.Cursors]::Hand
-$close.Add_Click({ $form.Close() })
-$header.Controls.Add($close)
-$y = 30
-
-function Add-BodyLabel([string]$Text) {
+function Add-Title([string]$Text) {
   if (-not $Text) { return }
-  $lab = New-Object System.Windows.Forms.Label
-  $lab.AutoSize = $false
-  $lab.Font = $fontUi
-  $lab.ForeColor = $fg
-  $lab.Text = $Text
-  $needed = Measure-TextHeight $Text $fontUi $innerW 18 54
-  $lab.Size = New-Object System.Drawing.Size $innerW, $needed
-  $lab.Location = New-Object System.Drawing.Point $pad, $script:y
-  $form.Controls.Add($lab)
-  Enable-Drag $lab
-  $script:y += $needed + 8
+  $tb = New-Object System.Windows.Controls.TextBlock
+  $tb.Text = $Text
+  $tb.TextWrapping = 'Wrap'
+  $tb.Foreground = $brFg
+  $tb.FontSize = 14
+  $tb.FontWeight = 'SemiBold'
+  $tb.Margin = New-Object System.Windows.Thickness 0, 0, 0, 10
+  [void]$body.Children.Add($tb)
 }
 
-$watch = New-Object System.Windows.Forms.Timer
-$watch.Interval = 800
-$watch.Add_Tick({
-  if (-not (Test-Path -LiteralPath $pendingFile)) { $form.Close() }
-})
-$watch.Start()
-$form.Add_FormClosed({ $watch.Stop() })
-
-$timeoutSec = 0
-try { $timeoutSec = [int]$data.timeoutSec } catch { $timeoutSec = 0 }
-if ($timeoutSec -gt 0) {
-  $life = New-Object System.Windows.Forms.Timer
-  $life.Interval = [Math]::Min(86400000, $timeoutSec * 1000)
-  $life.Add_Tick({
-    $this.Stop()
-    Write-ActLog 'timeout-close'
-    $form.Close()
-  })
-  $life.Start()
-  $form.Add_FormClosed({ $life.Stop() })
+function Add-OpenAndPrimary($PrimaryBtn) {
+  $row = New-Object System.Windows.Controls.DockPanel
+  $row.LastChildFill = $false
+  $row.Margin = New-Object System.Windows.Thickness 0, 8, 0, 4
+  $open = New-UiButton -Caption (LabelOf 'openSession' (U 0x56DE 0x5230 0x4F1A 0x8BDD)) -Bg $brOpen -Fg $brOpenFg -Width 96
+  $open.Add_Click({ Open-ExistingSession })
+  [System.Windows.Controls.DockPanel]::SetDock($open, 'Left')
+  [void]$row.Children.Add($open)
+  if ($PrimaryBtn) {
+    [System.Windows.Controls.DockPanel]::SetDock($PrimaryBtn, 'Right')
+    [void]$row.Children.Add($PrimaryBtn)
+  }
+  [void]$body.Children.Add($row)
 }
 
 if ($kind -eq 'question') {
   $script:questions = @($data.questions)
-  $body = [string]$script:questions[0].question
-  if (-not $body) { $body = [string]$data.heading }
-  Add-BodyLabel $body
+  $title = [string]$script:questions[0].question
+  if (-not $title) { $title = [string]$data.heading }
+  Add-Title $title
 
-  $needSubmit = $true
-
-  $optHost = New-Object System.Windows.Forms.Panel
-  $optHost.Location = New-Object System.Drawing.Point $pad, $y
-  $optHost.Width = $innerW
-  $optHost.BackColor = $bg
-  $optHost.AutoScroll = $false
-  $form.Controls.Add($optHost)
-
-  $oy = 0
+  $optPanel = New-Object System.Windows.Controls.StackPanel
   foreach ($q in $script:questions) {
     $qid = [string]$q.id
     $script:picked[$qid] = New-Object System.Collections.ArrayList
-    if ($script:questions.Count -gt 1 -and [string]$q.question -ne $body) {
-      $qh = New-Object System.Windows.Forms.Label
-      $qh.AutoSize = $false
-      $qh.Font = $fontSmall
-      $qh.ForeColor = $muted
+    if ($script:questions.Count -gt 1 -and [string]$q.question -ne $title) {
+      $qh = New-Object System.Windows.Controls.TextBlock
       $qh.Text = [string]$q.question
-      $qhH = Measure-TextHeight ([string]$q.question) $fontSmall $innerW 16 36
-      $qh.Size = New-Object System.Drawing.Size $innerW, $qhH
-      $qh.Location = New-Object System.Drawing.Point 0, $oy
-      $optHost.Controls.Add($qh)
-      $oy += $qhH + 4
+      $qh.Foreground = $brMuted
+      $qh.FontSize = 12
+      $qh.TextWrapping = 'Wrap'
+      $qh.Margin = New-Object System.Windows.Thickness 0, 4, 0, 4
+      [void]$optPanel.Children.Add($qh)
     }
     $multi = ($q.multiSelect -eq $true)
     foreach ($opt in @($q.options)) {
       $label = [string]$opt.label
       if (-not $label) { continue }
-      $caption = $label
-      $btn = New-OptionButton $caption
-      $btn.Width = $innerW
-      $btn.Location = New-Object System.Drawing.Point 0, $oy
-      $btn.Tag = @{ qid = $qid; label = $label; multi = $multi }
+      $btn = New-UiButton -Caption $label -Bg $brChip -Fg $brFg -Left
+      $btn.Height = 36
+      $btn.Margin = New-Object System.Windows.Thickness 0, 0, 0, 8
+      $btn.HorizontalAlignment = 'Stretch'
+      $btn.Tag = @{ qid = $qid; label = $label; multi = $multi; on = $false }
       $btn.Add_Click({
         try {
-          if ($busyState.busy) { return }
+          if ($script:busy) { return }
           $info = $this.Tag
           $qid = [string]$info.qid
           $label = [string]$info.label
           if ($info.multi) {
             if ($script:picked[$qid].Contains($label)) {
               [void]$script:picked[$qid].Remove($label)
-              $this.BackColor = $card
-              $this.FlatAppearance.BorderColor = $line
+              $this.Background = $brChip
+              $this.Foreground = $brFg
             } else {
               [void]$script:picked[$qid].Add($label)
-              $this.BackColor = $sel
-              $this.FlatAppearance.BorderColor = $accent
+              $this.Background = $brChipOn
+              $this.Foreground = $brFg
             }
             return
           }
-          $busyState.busy = $true
-          $this.BackColor = $sel
+          $script:busy = $true
+          $this.Background = $brChipOn
           Write-Inbox @{
             t = $Token
             a = 'answer'
-            answers = @(@{
-              id = $qid
-              selected = @($label)
-            })
+            answers = @(@{ id = $qid; selected = @($label) })
           }
           Close-Soon
         } catch {
           Write-ActLog ('click-error=' + $_.Exception.Message)
-          $err.Text = [string]$_.Exception.Message
-          $busyState.busy = $false
+          $script:errTb.Text = [string]$_.Exception.Message
+          $script:busy = $false
         }
       })
-      $optHost.Controls.Add($btn)
-      $oy += $optH + $optGap
+      [void]$optPanel.Children.Add($btn)
     }
 
-    $hint = New-Object System.Windows.Forms.Label
-    $hint.AutoSize = $false
-    $hint.Font = $fontSmall
-    $hint.ForeColor = $muted
-    $hint.Text = LabelOf 'customPlaceholder' (U 0x8F93 0x5165 0x4F60 0x7684 0x7B54 0x6848)
-    $hint.Size = New-Object System.Drawing.Size $innerW, 16
-    $hint.Location = New-Object System.Drawing.Point 0, $oy
-    $optHost.Controls.Add($hint)
-    $oy += 16
-
-    $boxBg = New-Object System.Windows.Forms.Panel
-    $boxBg.BackColor = $card
-    $boxBg.Location = New-Object System.Drawing.Point 0, $oy
-    $boxBg.Size = New-Object System.Drawing.Size $innerW, 28
-    $optHost.Controls.Add($boxBg)
-
-    $tb = New-Object System.Windows.Forms.TextBox
-    $tb.BorderStyle = 'None'
-    $tb.BackColor = $card
-    $tb.ForeColor = $fg
-    $tb.Font = $fontUi
-    $tb.Width = $innerW - 16
-    $tb.Height = 18
-    $tb.Location = New-Object System.Drawing.Point 8, ($oy + 5)
-    $tb.Tag = $qid
-    $optHost.Controls.Add($tb)
-    $tb.BringToFront()
-    $script:customBoxes[$qid] = $tb
-    $oy += 32
+    $ph = LabelOf 'customPlaceholder' (U 0x8F93 0x5165 0x4F60 0x7684 0x7B54 0x6848)
+    $hint = New-Object System.Windows.Controls.TextBlock
+    $hint.Text = LabelOf 'customLabel' (U 0x5176 0x4ED6)
+    $hint.Foreground = $brMuted
+    $hint.FontSize = 12
+    $hint.Margin = New-Object System.Windows.Thickness 0, 2, 0, 4
+    [void]$optPanel.Children.Add($hint)
+    $box = New-InputBox $ph
+    [void]$optPanel.Children.Add($box.Wrap)
+    $script:customBoxes[$qid] = $box.Box
   }
 
-  $optArea = $oy
-  if ($optArea -gt 196) {
-    $optHost.AutoScroll = $true
-    $optHost.Height = 196
-    $optHost.Width = $innerW
-  } else {
-    $optHost.Height = $optArea
-  }
-  $y = $optHost.Top + $optHost.Height + 4
+  $scroll = New-Object System.Windows.Controls.ScrollViewer
+  $scroll.VerticalScrollBarVisibility = 'Auto'
+  $scroll.HorizontalScrollBarVisibility = 'Disabled'
+  $scroll.MaxHeight = 220
+  $scroll.Content = $optPanel
+  [void]$body.Children.Add($scroll)
+  [void]$body.Children.Add($errTb)
 
-  if ($needSubmit) {
-    $err.Location = New-Object System.Drawing.Point $pad, $y
-    $form.Controls.Add($err)
-    $y += 16
-    [void](Add-OpenSessionButton $pad $y)
-    $send = New-TextButton (LabelOf 'submit' 'OK')
-    $send.Location = New-Object System.Drawing.Point ($cardW - $pad - 52), ($y)
-    $send.Add_Click({
-      try {
-        if ($busyState.busy) { return }
-        $answers = New-Object System.Collections.ArrayList
-        foreach ($q in $script:questions) {
-          $qid = [string]$q.id
-          $selList = @($script:picked[$qid])
-          $custom = ''
-          $box = $script:customBoxes[$qid]
-          if ($box) { $custom = ([string]$box.Text).Trim() }
-          if ($selList.Count -eq 0 -and -not $custom) {
-            $err.Text = LabelOf 'missing' 'pick'
-            return
-          }
-          $item = @{ id = $qid; selected = $selList }
-          if ($custom) {
-            $item['custom'] = $custom
-            if ($q.multiSelect -ne $true) { $item['selected'] = @() }
-          }
-          [void]$answers.Add($item)
+  $send = New-UiButton -Caption (LabelOf 'submit' 'OK') -Bg $brAccent -Fg $brAccentFg -Width 72
+  $send.Add_Click({
+    try {
+      if ($script:busy) { return }
+      $answers = New-Object System.Collections.ArrayList
+      foreach ($q in $script:questions) {
+        $qid = [string]$q.id
+        $selList = @($script:picked[$qid])
+        $custom = ''
+        $box = $script:customBoxes[$qid]
+        if ($box) { $custom = ([string]$box.Text).Trim() }
+        if ($selList.Count -eq 0 -and -not $custom) {
+          $script:errTb.Text = LabelOf 'missing' 'pick'
+          return
         }
-        $busyState.busy = $true
-        Write-Inbox @{ t = $Token; a = 'answer'; answers = @($answers) }
-        Close-Soon
-      } catch {
-        Write-ActLog ('click-error=' + $_.Exception.Message)
-        $err.Text = [string]$_.Exception.Message
-        $busyState.busy = $false
+        $item = @{ id = $qid; selected = $selList }
+        if ($custom) {
+          $item['custom'] = $custom
+          if ($q.multiSelect -ne $true) { $item['selected'] = @() }
+        }
+        [void]$answers.Add($item)
       }
-    })
-    $form.Controls.Add($send)
-    $y += 28
-  }
+      $script:busy = $true
+      Write-Inbox @{ t = $Token; a = 'answer'; answers = @($answers) }
+      Close-Soon
+    } catch {
+      Write-ActLog ('click-error=' + $_.Exception.Message)
+      $script:errTb.Text = [string]$_.Exception.Message
+      $script:busy = $false
+    }
+  })
+  Add-OpenAndPrimary $send
 }
 elseif ($kind -eq 'approval') {
-  $body = [string]$data.sub
-  if (-not $body) { $body = [string]$data.heading }
-  Add-BodyLabel $body
-
-  $half = [int](($innerW - 6) / 2)
-  $deny = New-OptionButton (LabelOf 'reject' 'Reject')
-  $deny.Width = $half
-  $deny.Location = New-Object System.Drawing.Point $pad, $y
-  $deny.TextAlign = 'MiddleCenter'
+  $title = [string]$data.sub
+  if (-not $title) { $title = [string]$data.heading }
+  Add-Title $title
+    $row = New-Object System.Windows.Controls.Primitives.UniformGrid
+  $row.Columns = 2
+  $row.Margin = New-Object System.Windows.Thickness 0, 0, 0, 4
+  $deny = New-UiButton -Caption (LabelOf 'reject' 'Reject') -Bg $brDeny -Fg $brDenyFg
+  $deny.Margin = New-Object System.Windows.Thickness 0, 0, 6, 0
+  $deny.Height = 36
   $deny.Tag = 'reject'
   $deny.Add_Click({
     try {
-      if ($busyState.busy) { return }
-      $busyState.busy = $true
+      if ($script:busy) { return }
+      $script:busy = $true
       Write-Inbox @{ t = $Token; a = [string]$this.Tag }
       Close-Soon
     } catch {
       Write-ActLog ('click-error=' + $_.Exception.Message)
-      $err.Text = [string]$_.Exception.Message
-      $busyState.busy = $false
+      $script:errTb.Text = [string]$_.Exception.Message
+      $script:busy = $false
     }
   })
-  $form.Controls.Add($deny)
-
-  $allow = New-OptionButton (LabelOf 'allow' 'Allow')
-  $allow.Width = $half
-  $allow.Location = New-Object System.Drawing.Point ($pad + $half + 6), $y
-  $allow.TextAlign = 'MiddleCenter'
+  $allow = New-UiButton -Caption (LabelOf 'allow' 'Allow') -Bg $brAccent -Fg $brAccentFg
+  $allow.Margin = New-Object System.Windows.Thickness 6, 0, 0, 0
+  $allow.Height = 36
   $allow.Tag = 'allow'
   $allow.Add_Click({
     try {
-      if ($busyState.busy) { return }
-      $busyState.busy = $true
+      if ($script:busy) { return }
+      $script:busy = $true
       Write-Inbox @{ t = $Token; a = [string]$this.Tag }
       Close-Soon
     } catch {
       Write-ActLog ('click-error=' + $_.Exception.Message)
-      $err.Text = [string]$_.Exception.Message
-      $busyState.busy = $false
+      $script:errTb.Text = [string]$_.Exception.Message
+      $script:busy = $false
     }
   })
-  $form.Controls.Add($allow)
-  $y += $optH + 4
-  [void](Add-OpenSessionButton $pad $y)
-  $y += 28
+  [void]$row.Children.Add($deny)
+  [void]$row.Children.Add($allow)
+  [void]$body.Children.Add($row)
+  [void]$body.Children.Add($errTb)
+  Add-OpenAndPrimary $null
 }
 elseif ($kind -eq 'idle') {
-  $body = [string]$data.heading
-  Add-BodyLabel $body
-
-  $boxBg = New-Object System.Windows.Forms.Panel
-  $boxBg.BackColor = $card
-  $boxBg.Location = New-Object System.Drawing.Point $pad, $y
-  $boxBg.Size = New-Object System.Drawing.Size ($innerW - 56), 28
-  $form.Controls.Add($boxBg)
-
-  $idleBox = New-Object System.Windows.Forms.TextBox
-  $idleBox.BorderStyle = 'None'
-  $idleBox.BackColor = $card
-  $idleBox.ForeColor = $fg
-  $idleBox.Font = $fontUi
-  $idleBox.Width = $innerW - 68
-  $idleBox.Height = 18
-  $idleBox.Location = New-Object System.Drawing.Point ($pad + 8), ($y + 6)
-  $form.Controls.Add($idleBox)
-  $idleBox.BringToFront()
-
-  $send = New-TextButton (LabelOf 'send' 'Send')
-  $send.Location = New-Object System.Drawing.Point ($pad + $innerW - 52), ($y + 1)
+  $title = [string]$data.heading
+  Add-Title $title
+  $ph = LabelOf 'placeholder' (U 0x4E0B 0x4E00 0x6B65)
+  $box = New-InputBox $ph
+  $script:idleBox = $box.Box
+  [void]$body.Children.Add($box.Wrap)
+  [void]$body.Children.Add($errTb)
+  $send = New-UiButton -Caption (LabelOf 'send' 'Send') -Bg $brAccent -Fg $brAccentFg -Width 72
   $send.Add_Click({
     try {
-      if ($busyState.busy) { return }
-      $textValue = $idleBox.Text.Trim()
+      if ($script:busy) { return }
+      $textValue = ([string]$script:idleBox.Text).Trim()
       if (-not $textValue) {
-        $err.Text = LabelOf 'empty' 'empty'
-        $err.Location = New-Object System.Drawing.Point $pad, ($idleBox.Top + 28)
-        if (-not $form.Controls.Contains($err)) { $form.Controls.Add($err) }
+        $script:errTb.Text = LabelOf 'empty' 'empty'
         return
       }
-      $busyState.busy = $true
+      $script:busy = $true
       Write-Inbox @{ t = $Token; a = 'send'; text = $textValue }
       Close-Soon
     } catch {
       Write-ActLog ('click-error=' + $_.Exception.Message)
-      $err.Text = [string]$_.Exception.Message
-      $busyState.busy = $false
+      $script:errTb.Text = [string]$_.Exception.Message
+      $script:busy = $false
     }
   })
-  $form.Controls.Add($send)
-  $y += 36
-  [void](Add-OpenSessionButton $pad $y)
-  $y += 28
+  Add-OpenAndPrimary $send
 }
 else {
   Write-ActLog ('unknown-kind=' + $kind)
   exit 0
 }
 
-$form.Height = [Math]::Max(96, [Math]::Min(380, $y + 10))
-Apply-Round
-Place-BottomRight
-$form.Add_Shown({
-  Apply-Round
-  Place-BottomRight
-  $cue = LabelOf 'customPlaceholder' (U 0x8F93 0x5165 0x4F60 0x7684 0x7B54 0x6848)
-  foreach ($qid in @($script:customBoxes.Keys)) {
-    Apply-Cue $script:customBoxes[$qid] $cue
+$card.Child = $dock
+$outer.Children.Add($card) | Out-Null
+$window.Content = $outer
+
+function Place-BottomRight {
+  $wa = [System.Windows.SystemParameters]::WorkArea
+  $w = $script:window.ActualWidth
+  $h = $script:window.ActualHeight
+  if ($w -le 0) { $w = $script:window.Width }
+  if ($h -le 0) { $h = 240 }
+  $script:window.Left = $wa.Right - $w - 10
+  $script:window.Top = [Math]::Max($wa.Top + 16, $wa.Bottom - $h - 10)
+}
+
+$watch = New-Object System.Windows.Threading.DispatcherTimer
+$watch.Interval = [TimeSpan]::FromMilliseconds(800)
+$watch.Add_Tick({
+  if (-not (Test-Path -LiteralPath $pendingFile)) { $script:window.Close() }
+})
+$watch.Start()
+
+$life = New-Object System.Windows.Threading.DispatcherTimer
+$life.Interval = [TimeSpan]::FromMilliseconds(80)
+$script:startedAt = [System.Diagnostics.Stopwatch]::StartNew()
+$life.Add_Tick({
+  if ($script:timeoutSec -le 0) { return }
+  $left = $script:timeoutSec - $script:startedAt.Elapsed.TotalSeconds
+  if ($left -le 0) {
+    $this.Stop()
+    Write-ActLog 'timeout-close'
+    try { $script:window.Close() } catch {}
+    return
   }
-  if ($idleBox) { $idleBox.Focus() }
+  $ratio = $left / $script:timeoutSec
+  if ($ratio -lt 0) { $ratio = 0 }
+  $tw = $script:timerHost.ActualWidth
+  if ($tw -gt 0) { $script:timerFill.Width = $tw * $ratio }
+  $script:timerFill.Fill = Get-TimerBrush $ratio
+})
+
+$window.Add_ContentRendered({
+  Place-BottomRight
+  if ($script:timeoutSec -gt 0) { $life.Start() }
+  if ($script:idleBox) { [void]$script:idleBox.Focus() }
   if ($data.playSound -ne $false) {
     try { [System.Media.SystemSounds]::Asterisk.Play() } catch {}
   }
 })
+$window.Add_SizeChanged({ Place-BottomRight })
+$window.Add_Closed({
+  $watch.Stop()
+  $life.Stop()
+})
 
-Write-ActLog ('show kind=' + $kind + ' token=' + $Token + ' h=' + $form.Height)
-[void][System.Windows.Forms.Application]::Run($form)
+Write-ActLog ('show kind=' + $kind + ' token=' + $Token + ' timeout=' + $timeoutSec)
+[void]$window.ShowDialog()
