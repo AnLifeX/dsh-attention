@@ -80,7 +80,7 @@ export function renderReplyHtml() {
     .card {
       max-width: 480px;
       margin: 0 auto;
-      background: rgba(250, 252, 251, .78);
+      background: rgba(250, 252, 251, var(--card-alpha, .78));
       border: 1px solid rgba(255, 255, 255, .5);
       border-radius: 18px;
       padding: 20px 20px 12px;
@@ -90,12 +90,12 @@ export function renderReplyHtml() {
     }
     html[data-theme="dark"] .card,
     html:not([data-theme="light"]) .card {
-      background: rgba(28, 32, 34, .78);
+      background: rgba(28, 32, 34, var(--card-alpha, .78));
       border-color: rgba(255, 255, 255, .14);
     }
     @media (prefers-color-scheme: light) {
       html:not([data-theme="dark"]) .card {
-        background: rgba(250, 252, 251, .78);
+        background: rgba(250, 252, 251, var(--card-alpha, .78));
         border-color: rgba(255, 255, 255, .5);
       }
     }
@@ -379,6 +379,9 @@ export function renderReplyHtml() {
       .then((r) => r.json())
       .then((data) => {
         applyTheme(data && data.theme);
+        if (data && typeof data.cardOpacity === 'number') {
+          document.documentElement.style.setProperty('--card-alpha', String(data.cardOpacity));
+        }
         if (!data || !data.ok) return renderGone('这条通知已经失效，请回到原来的 dsh 窗口。');
         if (data.kind === 'idle') renderIdle();
         else if (data.kind === 'question') renderQuestion(data);

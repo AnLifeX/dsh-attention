@@ -48,6 +48,7 @@ const DEFAULT_CONFIG = {
   notifyIdle: true,
   notifyStyle: 'custom',
   notifyTimeoutSec: 30,
+  cardOpacity: 0.78,
   openSessionMode: 'reuse',
   focusAfterReply: false,
   sound: DEFAULT_SOUND,
@@ -70,6 +71,9 @@ export function normalizeConfig(config) {
   cfg.notifyIdle = asBool(cfg.notifyIdle, true)
   cfg.notifyStyle = notifyStyleOf(cfg.notifyStyle)
   cfg.notifyTimeoutSec = notifyTimeoutSecOf(cfg.notifyTimeoutSec)
+  cfg.cardOpacity = Number.isFinite(Number(cfg.cardOpacity))
+    ? Math.min(1, Math.max(0.1, Math.round(Number(cfg.cardOpacity) * 100) / 100))
+    : DEFAULT_CONFIG.cardOpacity
   cfg.openSessionMode = openSessionModeOf(cfg.openSessionMode)
   cfg.focusAfterReply = asBool(cfg.focusAfterReply, false)
   cfg.cooldownMs = Math.max(0, Math.floor(Number(cfg.cooldownMs) || 0))
@@ -316,6 +320,7 @@ export function apply(ctx, config = {}) {
   const choicePending = (token, sessionId, extra = {}) => ({
     token,
     timeoutSec: cfg.notifyTimeoutSec,
+    cardOpacity: cfg.cardOpacity,
     webUrl: cfg.webUrl,
     openUrl: sessionFocusUrl(cfg.webUrl, sessionId),
     openSessionMode: cfg.openSessionMode,
@@ -871,6 +876,7 @@ export function apply(ctx, config = {}) {
           questions: record.questions ?? [],
           theme: lastUiTheme,
           timeoutSec: record.timeoutSec ?? cfg.notifyTimeoutSec,
+          cardOpacity: cfg.cardOpacity,
         })
       },
     }), 'dsh-attention: pending')

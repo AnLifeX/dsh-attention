@@ -165,6 +165,7 @@ test('normalizeConfig fills defaults', () => {
   assert.equal(cfg.notifyStyle, 'custom')
   assert.equal(cfg.openSessionMode, 'reuse')
   assert.equal(cfg.notifyTimeoutSec, 30)
+  assert.equal(cfg.cardOpacity, 0.78)
 })
 
 test('normalizeConfig parses notifyTimeoutSec', () => {
@@ -175,6 +176,15 @@ test('normalizeConfig parses notifyTimeoutSec', () => {
   assert.equal(normalizeConfig({}).notifyTimeoutSec, 30)
   assert.equal(normalizeConfig({ notifyTimeoutSec: 0 }).notifyTimeoutSec, 0)
   assert.equal(normalizeConfig({ notifyTimeoutSec: '45' }).notifyTimeoutSec, 45)
+})
+
+test('normalizeConfig parses and clamps cardOpacity', () => {
+  assert.equal(normalizeConfig({}).cardOpacity, 0.78)
+  assert.equal(normalizeConfig({ cardOpacity: 0.5 }).cardOpacity, 0.5)
+  assert.equal(normalizeConfig({ cardOpacity: '0.65' }).cardOpacity, 0.65)
+  assert.equal(normalizeConfig({ cardOpacity: 2 }).cardOpacity, 1)
+  assert.equal(normalizeConfig({ cardOpacity: 0 }).cardOpacity, 0.1)
+  assert.equal(publicConfig(normalizeConfig({ cardOpacity: 0.5 })).cardOpacity, 0.5)
 })
 
 test('normalizeConfig keeps sound off as empty string', () => {
@@ -228,6 +238,7 @@ test('sanitizeUiPatch drops empty and unknown fields', () => {
   assert.deepEqual(sanitizeUiPatch({}), {})
   assert.deepEqual(sanitizeUiPatch({ notifyStyle: 'system', ignored: 1 }), { notifyStyle: 'system' })
   assert.deepEqual(sanitizeUiPatch({ openSessionMode: 'new' }), { openSessionMode: 'new' })
+  assert.deepEqual(sanitizeUiPatch({ cardOpacity: 0.5 }), { cardOpacity: 0.5 })
   assert.deepEqual(sanitizeUiPatch({ soundEnabled: false, enabled: undefined }), { soundEnabled: false })
 })
 
@@ -238,6 +249,7 @@ test('publicConfig exposes UI fields and soundEnabled', () => {
   assert.equal(pub.soundEnabled, false)
   assert.equal(pub.focusAfterReply, true)
   assert.deepEqual(Object.keys(pickUiFields(cfg)).sort(), [
+    'cardOpacity',
     'cooldownMs',
     'enabled',
     'focusAfterReply',

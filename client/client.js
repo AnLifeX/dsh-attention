@@ -61,6 +61,8 @@ window.__ModuleLoader__.load({
 			cooldownMsHint: "同一会话连续弹提醒的最短间隔，避免刷屏。",
 			notifyTimeoutSec: "停留时间（秒）",
 			notifyTimeoutSecHint: "到点自动消失。填 0 则一直留到你关掉。系统通知屏幕上只有约 7 秒 / 25 秒两档；自制卡片按填写的秒数。",
+			cardOpacity: "卡片不透明度",
+			cardOpacityHint: "调整毛玻璃卡片的不透明程度，越小越透。",
 			saved: "已保存",
 			saveFailed: "保存失败",
 			unsaved: "未保存",
@@ -105,6 +107,8 @@ window.__ModuleLoader__.load({
 			cooldownMsHint: "Ignore another reminder for the same session until this many milliseconds have passed.",
 			notifyTimeoutSec: "Stay on screen (seconds)",
 			notifyTimeoutSecHint: "Auto-hide after this many seconds. 0 keeps it until you dismiss it. System toasts only stay about 7s or 25s on screen; the custom card uses the exact value.",
+			cardOpacity: "Card opacity",
+			cardOpacityHint: "Adjust how opaque the frosted-glass card is. Lower is more transparent.",
 			saved: "Saved",
 			saveFailed: "Save failed",
 			unsaved: "Unsaved",
@@ -115,7 +119,7 @@ window.__ModuleLoader__.load({
 			collapse: "Collapse"
 		};
 
-		const NOTIFY_KEYS = ["enabled", "notifyStyle", "notifyTimeoutSec", "notifyApproval", "notifyQuestion", "notifyIdle", "rootsOnly", "soundEnabled", "webUrl", "openSessionMode"];
+		const NOTIFY_KEYS = ["enabled", "notifyStyle", "notifyTimeoutSec", "cardOpacity", "notifyApproval", "notifyQuestion", "notifyIdle", "rootsOnly", "soundEnabled", "webUrl", "openSessionMode"];
 		const WAKE_KEYS = ["hiddenReloadMs", "cooldownMs"];
 
 		function pickKeys(obj, keys) {
@@ -136,6 +140,9 @@ window.__ModuleLoader__.load({
 				} else if (key === "notifyTimeoutSec") {
 					left = Number.isFinite(Number(left)) ? Math.max(0, Math.min(86400, Math.floor(Number(left)))) : 30;
 					right = Number.isFinite(Number(right)) ? Math.max(0, Math.min(86400, Math.floor(Number(right)))) : 30;
+				} else if (key === "cardOpacity") {
+					left = Math.round((Number.isFinite(Number(left)) ? Math.min(1, Math.max(0.1, Number(left))) : 0.78) * 100) / 100;
+					right = Math.round((Number.isFinite(Number(right)) ? Math.min(1, Math.max(0.1, Number(right))) : 0.78) * 100) / 100;
 				} else if (key === "webUrl" || key === "notifyStyle" || key === "openSessionMode") {
 					left = String(left || "").trim();
 					right = String(right || "").trim();
@@ -327,6 +334,8 @@ window.__ModuleLoader__.load({
 				".dshatt_btn_outline:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed,rgba(128,128,128,.45))}",
 				".dshatt_btn_primary{background:var(--dsw-alias-label-primary,#111);color:var(--dsw-alias-bg-layer-3,#fff)}",
 				".dshatt_warn{margin:4px 0 0;font-size:12px;line-height:1.5;color:var(--dsw-alias-state-warning-primary,#ca8a04)}",
+				".dshatt_opacity{display:flex;align-items:center;gap:10px}",
+				".dshatt_opacity input[type=range]{flex:1;min-width:0;accent-color:var(--dsw-alias-brand-primary,#0f766e)}",
 				".dshatt_input{background:var(--dsw-specific-input-major,var(--dsw-alias-bg-layer-2,rgba(128,128,128,.08)));border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.2));border-radius:6px;padding:8px 12px;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;width:100%;box-sizing:border-box;outline:none}",
 				".dshatt_input:focus{border-color:var(--dsw-alias-brand-primary,#0f766e);box-shadow:0 0 0 2px rgba(15,118,110,.22)}",
 				".dshatt_toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--dsw-alias-state-success-primary,#10b981);color:#fff;padding:8px 18px;border-radius:999px;font-size:12.5px;font-weight:500;z-index:100000}",
@@ -592,6 +601,11 @@ window.__ModuleLoader__.load({
 					if (Number.isFinite(n)) payload.notifyTimeoutSec = Math.max(0, Math.min(86400, Math.floor(n)));
 					else delete payload.notifyTimeoutSec;
 				}
+				if (Object.hasOwn(payload, "cardOpacity")) {
+					const n = Number(payload.cardOpacity);
+					if (Number.isFinite(n)) payload.cardOpacity = Math.min(1, Math.max(0.1, Math.round(n * 100) / 100));
+					else delete payload.cardOpacity;
+				}
 				if (Object.keys(payload).length === 0) return;
 				setSavingCard(card);
 				setFailedCard(null);
@@ -640,6 +654,21 @@ window.__ModuleLoader__.load({
 					}, [
 						react.createElement(ToggleRow, { t, key: "enabled", labelKey: "enabled", hintKey: "enabledHint", checked: notifyView.enabled !== false, onChange: (v) => patchCard("notify", { enabled: v }) }),
 						react.createElement(StyleChoice, { t, key: "style", name: radioName, value: notifyView.notifyStyle, disabled: off, onChange: (v) => patchCard("notify", { notifyStyle: v }) }),
+						notifyView.notifyStyle === "system" ? null : react.createElement(FieldRow, { t, key: "opacity", labelKey: "cardOpacity", hintKey: "cardOpacityHint" },
+							react.createElement("div", { className: "dshatt_opacity", key: "opacity" }, [
+								react.createElement("input", {
+									className: "dshatt_range",
+									type: "range",
+									min: "10",
+									max: "100",
+									step: "5",
+									disabled: off,
+									value: String(Math.round((notifyView.cardOpacity ?? 0.78) * 100)),
+									onChange: (event) => patchCard("notify", { cardOpacity: Number(event.target.value) / 100 }),
+									key: "range"
+								}),
+								react.createElement("span", { className: "dshatt_hint", key: "pct" }, String(Math.round((notifyView.cardOpacity ?? 0.78) * 100)) + "%")
+							])),
 						react.createElement(FieldRow, { t, key: "timeout", labelKey: "notifyTimeoutSec", hintKey: "notifyTimeoutSecHint" },
 							react.createElement("input", {
 								className: "dshatt_input",

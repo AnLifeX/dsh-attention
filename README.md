@@ -48,6 +48,7 @@ dsh plugin --profile web add dsh-attention
 | `notifyIdle` | `true` | 一轮对话结束后的下一步输入 |
 | `notifyStyle` | `custom` | `custom` 自制卡片；`system` 系统通知 |
 | `notifyTimeoutSec` | `30` | 停留秒数；`0` 一直留到关掉。系统通知实际只有约 7 秒 / 25 秒两档 |
+| `cardOpacity` | `0.78` | 自制毛玻璃卡片不透明度，`0.1`–`1`，越小越透 |
 | `openSessionMode` | `reuse` | `reuse` 复用已有窗口；`new` 每次新开 |
 | `webUrl` | `http://127.0.0.1:3080` | 回环回调与找不到窗口时的打开地址 |
 | `hiddenReloadMs` | `8000` | 标签隐藏多久后唤醒要刷新（毫秒；设置页按秒填写） |

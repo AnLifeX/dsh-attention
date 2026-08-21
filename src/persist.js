@@ -16,6 +16,7 @@ export const UI_KEYS = [
   'notifyIdle',
   'notifyStyle',
   'notifyTimeoutSec',
+  'cardOpacity',
   'openSessionMode',
   'focusAfterReply',
   'sound',

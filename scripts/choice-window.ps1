@@ -326,8 +326,15 @@ function Get-TimerBrush([double]$Ratio) {
 $theme = Resolve-Theme
 Write-ActLog ('theme=' + $theme)
 
+$cardOpacity = 0.78
+try {
+  $op = [double]$data.cardOpacity
+  if ($op -ge 0.1 -and $op -le 1) { $cardOpacity = $op }
+} catch {}
+$glassAlpha = [byte][Math]::Round(255 * $cardOpacity)
+
 if ($theme -eq 'dark') {
-  $brGlass = New-Brush 188 22 28 32
+  $brGlass = New-Brush $glassAlpha 22 28 32
   $brGlassLine = New-Brush 90 180 230 220
   $brChip = New-Brush 150 42 52 54
   $brChipOn = New-Brush 200 18 54 50
@@ -342,7 +349,7 @@ if ($theme -eq 'dark') {
   $brDanger = New-Brush 255 248 113 113
   $brInput = New-Brush 160 36 44 46
 } else {
-  $brGlass = New-Brush 198 255 255 255
+  $brGlass = New-Brush $glassAlpha 255 255 255
   $brGlassLine = New-Brush 110 255 255 255
   $brChip = New-Brush 160 236 242 240
   $brChipOn = New-Brush 210 204 241 236
