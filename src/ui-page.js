@@ -1,5 +1,5 @@
 /**
- * 回复小窗（浏览器备选）。主路径是右下角 WinForms，点选项立刻提交。
+ * 回复小窗（浏览器备选）。主路径是右下角 WPF 毛玻璃卡片。
  */
 export function renderReplyHtml() {
   return `<!doctype html>
@@ -10,92 +10,167 @@ export function renderReplyHtml() {
   <title>提醒</title>
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #101216;
-      --card: #1a1d24;
-      --line: rgba(255,255,255,.08);
-      --text: #f3f4f6;
-      --muted: #9ca3af;
+      color-scheme: light;
+      --page: #d7e4e1;
+      --card: #fafcfb;
+      --chip: #ecf2f0;
+      --line: #b0c4be;
+      --border: #0f766e;
+      --text: #1c2422;
+      --muted: #5a6c68;
       --accent: #0f766e;
-      --accent-2: #14b8a6;
-      --danger: #ef4444;
-      --ok: #10b981;
+      --accent-hover: #0d5e58;
+      --accent-soft: #dcf2ee;
+      --accent-fg: #0f5e58;
+      --danger: #dc2626;
+      --ok: #059669;
+      --glow: rgba(15, 118, 110, .42);
+      --glow-strong: rgba(20, 184, 166, .55);
+      --on-accent: #fff;
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --page: #121618;
+      --card: #1c2022;
+      --chip: #2a3234;
+      --line: #405450;
+      --border: #2dd4bf;
+      --text: #ecf2f0;
+      --muted: #9caead;
+      --accent: #2dd4bf;
+      --accent-hover: #14b8a6;
+      --accent-soft: #123632;
+      --accent-fg: #99f6e4;
+      --danger: #f87171;
+      --ok: #34d399;
+      --glow: rgba(45, 212, 191, .38);
+      --glow-strong: rgba(45, 212, 191, .7);
+      --on-accent: #08201c;
+    }
+    @media (prefers-color-scheme: dark) {
+      html:not([data-theme="light"]) {
+        color-scheme: dark;
+        --page: #121618;
+        --card: #1c2022;
+        --chip: #2a3234;
+        --line: #405450;
+        --border: #2dd4bf;
+        --text: #ecf2f0;
+        --muted: #9caead;
+        --accent: #2dd4bf;
+        --accent-hover: #14b8a6;
+        --accent-soft: #123632;
+        --accent-fg: #99f6e4;
+        --danger: #f87171;
+        --ok: #34d399;
+        --glow: rgba(45, 212, 191, .38);
+        --glow-strong: rgba(45, 212, 191, .7);
+        --on-accent: #08201c;
+      }
     }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       min-height: 100%;
-      background: var(--bg);
+      background: var(--page);
       color: var(--text);
       font: 14px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     }
-    body { padding: 20px 18px 24px; }
+    body { padding: 28px 22px 32px; }
     .card {
       max-width: 480px;
       margin: 0 auto;
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 18px 18px 16px;
+      background: rgba(250, 252, 251, .78);
+      border: 1px solid rgba(255, 255, 255, .5);
+      border-radius: 18px;
+      padding: 20px 20px 12px;
       box-sizing: border-box;
-      box-shadow: 0 18px 40px rgba(0,0,0,.35);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, .18);
+    }
+    html[data-theme="dark"] .card,
+    html:not([data-theme="light"]) .card {
+      background: rgba(28, 32, 34, .78);
+      border-color: rgba(255, 255, 255, .14);
+    }
+    @media (prefers-color-scheme: light) {
+      html:not([data-theme="dark"]) .card {
+        background: rgba(250, 252, 251, .78);
+        border-color: rgba(255, 255, 255, .5);
+      }
     }
     .kicker {
       font-size: 11px;
       letter-spacing: .08em;
       text-transform: uppercase;
-      color: var(--accent-2);
+      color: var(--accent);
       font-weight: 650;
     }
-    h1 { font-size: 18px; margin: 6px 0 4px; font-weight: 650; }
+    h1 { font-size: 18px; margin: 6px 0 4px; font-weight: 650; color: var(--text); }
     .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
     .q { border-top: 1px solid var(--line); padding: 14px 0 4px; }
-    .q h2 { font-size: 14px; margin: 0 0 8px; font-weight: 600; }
+    .q h2 { font-size: 14px; margin: 0 0 8px; font-weight: 600; color: var(--text); }
     .opt {
       display: block;
       width: 100%;
       text-align: left;
-      padding: 12px 14px;
+      padding: 12px 16px;
       border: 1px solid var(--line);
-      border-radius: 10px;
+      border-radius: 14px;
       margin: 0 0 8px;
       cursor: pointer;
-      background: #12141a;
+      background: var(--chip);
       color: var(--text);
       font: inherit;
+      transition: border-color .15s ease, background .15s ease, transform .12s ease, box-shadow .15s ease;
     }
-    .opt:hover { border-color: rgba(20,184,166,.45); }
-    .opt.on { border-color: var(--accent-2); background: #103532; }
+    .opt:hover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      transform: translateY(-1px);
+    }
+    .opt.on {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent-fg);
+    }
     .opt .lab { font-weight: 600; }
     .opt .desc { color: var(--muted); font-size: 12px; margin-top: 2px; }
     textarea, input[type=text] {
       width: 100%;
       border: 1px solid var(--line);
-      background: #12141a;
+      background: var(--chip);
       color: var(--text);
-      border-radius: 10px;
-      padding: 10px 12px;
+      border-radius: 14px;
+      padding: 10px 14px;
       font: inherit;
       outline: none;
     }
     textarea { min-height: 120px; resize: vertical; }
-    textarea:focus, input[type=text]:focus { border-color: var(--accent-2); }
-    .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-    .primary, .ghost {
+    textarea:focus, input[type=text]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--glow);
+    }
+    .actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 16px; }
+    .primary, .ghost, .session {
       appearance: none;
       border: 0;
-      border-radius: 10px;
+      border-radius: 12px;
       padding: 8px 16px;
       font: inherit;
       font-weight: 600;
       cursor: pointer;
     }
-    .ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
-    .primary { background: var(--accent); color: #fff; }
-    .primary:disabled, .opt:disabled { opacity: .45; cursor: default; }
+    .ghost { background: #f43f5e; color: #fff; border: 0; }
+    .session { background: #2563eb; color: #fff; }
+    .primary { background: var(--accent); color: var(--on-accent); }
+    .primary:hover { background: var(--accent-hover); }
+    .primary:disabled, .opt:disabled { opacity: .45; cursor: default; transform: none; box-shadow: none; }
     .err { color: var(--danger); font-size: 13px; min-height: 18px; margin: 8px 0 0; }
     .ok { color: var(--ok); }
     .gone { color: var(--muted); padding: 24px 8px; text-align: center; }
+    .timer { height: 6px; border-radius: 99px; background: rgba(0,0,0,.12); margin: 14px 0 2px; overflow: hidden; }
+    .timer > i { display: block; height: 100%; width: 100%; border-radius: 99px; background: #10b981; }
   </style>
 </head>
 <body>
@@ -104,6 +179,40 @@ export function renderReplyHtml() {
     const token = new URLSearchParams(location.search).get('t') || '';
     const root = document.getElementById('root');
     const headers = { 'x-dsh-attention': '1', 'accept': 'application/json' };
+
+    function applyTheme(theme) {
+      const next = theme === 'dark' || theme === 'light' ? theme : '';
+      if (!next) return;
+      document.documentElement.setAttribute('data-theme', next);
+      document.documentElement.style.colorScheme = next;
+    }
+
+    function lerp(a, b, t) { return Math.round(a + (b - a) * t); }
+    function timerColor(ratio) {
+      const g = [16, 185, 129], y = [234, 179, 8], r = [239, 68, 68];
+      const p = ratio >= 0.5 ? (1 - ratio) / 0.5 : (0.5 - ratio) / 0.5;
+      const from = ratio >= 0.5 ? g : y;
+      const to = ratio >= 0.5 ? y : r;
+      return 'rgb(' + lerp(from[0], to[0], p) + ',' + lerp(from[1], to[1], p) + ',' + lerp(from[2], to[2], p) + ')';
+    }
+    function startTimer(sec) {
+      const n = Number(sec);
+      if (!n || n <= 0) return;
+      const wrap = el('div', { class: 'timer' });
+      const bar = document.createElement('i');
+      wrap.appendChild(bar);
+      root.appendChild(wrap);
+      const t0 = Date.now();
+      const tick = () => {
+        const left = n - (Date.now() - t0) / 1000;
+        if (left <= 0) { try { window.close(); } catch {} return; }
+        const ratio = Math.max(0, left / n);
+        bar.style.width = (ratio * 100) + '%';
+        bar.style.background = timerColor(ratio);
+        requestAnimationFrame(tick);
+      };
+      tick();
+    }
 
     function el(tag, attrs, kids) {
       const node = document.createElement(tag);
@@ -269,11 +378,13 @@ export function renderReplyHtml() {
     fetch('/dsh-attention/pending?t=' + encodeURIComponent(token), { headers, cache: 'no-store' })
       .then((r) => r.json())
       .then((data) => {
+        applyTheme(data && data.theme);
         if (!data || !data.ok) return renderGone('这条通知已经失效，请回到原来的 dsh 窗口。');
-        if (data.kind === 'idle') return renderIdle();
-        if (data.kind === 'question') return renderQuestion(data);
-        if (data.kind === 'approval') return renderApproval();
-        renderGone('没有可处理的内容。');
+        if (data.kind === 'idle') renderIdle();
+        else if (data.kind === 'question') renderQuestion(data);
+        else if (data.kind === 'approval') renderApproval();
+        else return renderGone('没有可处理的内容。');
+        startTimer(data.timeoutSec);
       })
       .catch(() => renderGone('连不上 dsh。请确认 dsh web 还在跑。'));
   </script>
