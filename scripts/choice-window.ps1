@@ -559,6 +559,14 @@ $close.ToolTip = LabelOf 'close' 'Close'
 $close.Add_Click({ $script:window.Close() })
 [void]$header.Children.Add($close)
 
+$openHeader = New-UiButton -Caption (LabelOf 'openSession' (U 0x56DE 0x5230 0x4F1A 0x8BDD)) -Bg $brOpen -Fg $brOpenFg -Width 88
+$openHeader.Height = 32
+$openHeader.Margin = New-Object System.Windows.Thickness 0, 0, 6, 0
+$openHeader.VerticalAlignment = 'Center'
+$openHeader.Add_Click({ Open-ExistingSession })
+[System.Windows.Controls.DockPanel]::SetDock($openHeader, 'Right')
+[void]$header.Children.Add($openHeader)
+
 $kickerText = LabelOf 'kicker' 'dsh'
 if ($session) { $kickerText = $kickerText + '  ' + $session }
 $kicker = New-Object System.Windows.Controls.TextBlock
@@ -642,18 +650,13 @@ function Add-Title([string]$Text) {
   [void]$body.Children.Add($tb)
 }
 
-function Add-OpenAndPrimary($PrimaryBtn) {
+function Add-PrimaryAction($PrimaryBtn) {
+  if (-not $PrimaryBtn) { return }
   $row = New-Object System.Windows.Controls.DockPanel
   $row.LastChildFill = $false
   $row.Margin = New-Object System.Windows.Thickness 0, 8, 0, 4
-  $open = New-UiButton -Caption (LabelOf 'openSession' (U 0x56DE 0x5230 0x4F1A 0x8BDD)) -Bg $brOpen -Fg $brOpenFg -Width 96
-  $open.Add_Click({ Open-ExistingSession })
-  if ($PrimaryBtn) {
-    [System.Windows.Controls.DockPanel]::SetDock($PrimaryBtn, 'Left')
-    [void]$row.Children.Add($PrimaryBtn)
-  }
-  [System.Windows.Controls.DockPanel]::SetDock($open, 'Right')
-  [void]$row.Children.Add($open)
+  [System.Windows.Controls.DockPanel]::SetDock($PrimaryBtn, 'Left')
+  [void]$row.Children.Add($PrimaryBtn)
   [void]$body.Children.Add($row)
 }
 
@@ -771,14 +774,14 @@ if ($kind -eq 'question') {
       $script:busy = $false
     }
   })
-  Add-OpenAndPrimary $send
+  Add-PrimaryAction $send
 }
 elseif ($kind -eq 'approval') {
   $title = [string]$data.sub
   if (-not $title) { $title = [string]$data.heading }
   Add-Title $title
     $row = New-Object System.Windows.Controls.DockPanel
-  $row.LastChildFill = $true
+  $row.LastChildFill = $false
   $row.Margin = New-Object System.Windows.Thickness 0, 0, 0, 4
   $allow = New-UiButton -Caption (LabelOf 'allow' 'Allow') -Bg $brAccent -Fg $brAccentFg -Width 88
   $allow.Margin = New-Object System.Windows.Thickness 0, 0, 6, 0
@@ -816,11 +819,6 @@ elseif ($kind -eq 'approval') {
   })
   [System.Windows.Controls.DockPanel]::SetDock($deny, 'Right')
   [void]$row.Children.Add($deny)
-  $open = New-UiButton -Caption (LabelOf 'openSession' (U 0x56DE 0x5230 0x4F1A 0x8BDD)) -Bg $brOpen -Fg $brOpenFg -Width 96
-  $open.Height = 36
-  $open.HorizontalAlignment = 'Center'
-  $open.Add_Click({ Open-ExistingSession })
-  [void]$row.Children.Add($open)
   [void]$body.Children.Add($row)
   [void]$body.Children.Add($errTb)
 }
@@ -850,7 +848,7 @@ elseif ($kind -eq 'idle') {
       $script:busy = $false
     }
   })
-  Add-OpenAndPrimary $send
+  Add-PrimaryAction $send
 }
 else {
   Write-ActLog ('unknown-kind=' + $kind)
