@@ -1,4 +1,11 @@
+<p align="center">
+  <img src="assets/logo.png" width="128" height="128" alt="dsh-attention">
+</p>
+
 # dsh-attention
+
+[![npm version](https://img.shields.io/npm/v/dsh-attention.svg)](https://www.npmjs.com/package/dsh-attention)
+![Windows](https://img.shields.io/badge/Windows-10%2B-0078D6?logo=windows&logoColor=white)
 
 DeepSeek Harness 插件：会话需要 **审批 / 提问 / 选择**，或一轮对话结束时，在屏幕右下角弹出可操作的提醒；浏览器标签休眠后再回来时自动刷新，避免审批卡片卡住。
 
@@ -15,10 +22,10 @@ DeepSeek Harness 插件：会话需要 **审批 / 提问 / 选择**，或一轮�
 ## 安装
 
 ```bash
-dsh plugin --profile web add github:Gaq152/dsh-attention
+dsh plugin --profile web add dsh-attention
 ```
 
-装完后重启 `dsh web`。
+装完后重启 `dsh web`。更新到最新版用 `dsh-attention@latest`。
 
 ## 用法
 

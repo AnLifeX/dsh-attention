@@ -203,7 +203,7 @@ function receiptOk(receipt) {
 
 function loadLogoPng() {
   try {
-    return readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'logo-a-bell.png'))
+    return readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'logo.png'))
   } catch {
     return null
   }

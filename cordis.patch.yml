@@ -1,5 +1,5 @@
 # dsh-attention bundle。
-# 安装: dsh plugin --profile web add <本目录>
+# 安装: dsh plugin --profile web add dsh-attention
 - insert:
     - id: dsh-attention
       name: dsh-attention
