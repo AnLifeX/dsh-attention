@@ -65,6 +65,14 @@ window.__ModuleLoader__.load({
 			cardOpacityHint: "调整毛玻璃卡片的不透明程度，越小越透。",
 			cardPreview: "预览卡片",
 			cardPreviewHint: "开启后在右下角实时显示自制卡片的透明度效果。",
+			cardEnable: "通知开关",
+			cardEnableDesc: "总开关，关掉后不再弹提醒。",
+			cardAppearance: "卡片外观",
+			cardAppearanceDesc: "样式、不透明度、停留时间。",
+			cardScope: "提醒范围",
+			cardScopeDesc: "哪些事件需要弹提醒。",
+			cardSoundOpen: "声音与打开方式",
+			cardSoundOpenDesc: "提示音、页面地址、回到会话方式。",
 			saved: "已保存",
 			saveFailed: "保存失败",
 			unsaved: "未保存",
@@ -113,6 +121,14 @@ window.__ModuleLoader__.load({
 			cardOpacityHint: "Adjust how opaque the frosted-glass card is. Lower is more transparent.",
 			cardPreview: "Preview card",
 			cardPreviewHint: "Show a live custom-card preview at the bottom-right while adjusting opacity.",
+			cardEnable: "Notifications",
+			cardEnableDesc: "Master switch. Turns off all reminder pop-ups.",
+			cardAppearance: "Card appearance",
+			cardAppearanceDesc: "Style, opacity, and how long the card stays.",
+			cardScope: "Alert scope",
+			cardScopeDesc: "Which events should show a reminder.",
+			cardSoundOpen: "Sound & open",
+			cardSoundOpenDesc: "Sound, page URL, and return-to-session behavior.",
 			saved: "Saved",
 			saveFailed: "Save failed",
 			unsaved: "Unsaved",
@@ -123,7 +139,10 @@ window.__ModuleLoader__.load({
 			collapse: "Collapse"
 		};
 
-		const NOTIFY_KEYS = ["enabled", "notifyStyle", "notifyTimeoutSec", "cardOpacity", "notifyApproval", "notifyQuestion", "notifyIdle", "rootsOnly", "soundEnabled", "webUrl", "openSessionMode"];
+		const ENABLE_KEYS = ["enabled"];
+		const APPEARANCE_KEYS = ["notifyStyle", "notifyTimeoutSec", "cardOpacity"];
+		const SCOPE_KEYS = ["notifyApproval", "notifyQuestion", "notifyIdle", "rootsOnly"];
+		const SOUND_OPEN_KEYS = ["soundEnabled", "webUrl", "openSessionMode"];
 		const WAKE_KEYS = ["hiddenReloadMs", "cooldownMs"];
 
 		function pickKeys(obj, keys) {
@@ -525,10 +544,10 @@ window.__ModuleLoader__.load({
 
 		function SettingsPage({ t }) {
 			const [saved, setSaved] = react.useState(null);
-			const [drafts, setDrafts] = react.useState({ notify: {}, wake: {} });
+			const [drafts, setDrafts] = react.useState({ enable: {}, appearance: {}, scope: {}, soundopen: {}, wake: {} });
 			const [toast, setToast] = react.useState("");
 			const [toastErr, setToastErr] = react.useState(false);
-			const [open, setOpen] = react.useState({ notify: true, wake: false });
+			const [open, setOpen] = react.useState({ enable: true, appearance: true, scope: false, soundopen: false, wake: false });
 			const [savingCard, setSavingCard] = react.useState(null);
 			const [failedCard, setFailedCard] = react.useState(null);
 			const radioName = react.useRef("dshatt-notify-style-" + Math.random().toString(36).slice(2)).current;
@@ -633,12 +652,18 @@ window.__ModuleLoader__.load({
 
 			if (!saved) return react.createElement("div", { className: "dshatt_page" });
 
-			const notifyView = viewOf("notify");
+			const enableView = viewOf("enable");
+			const appearanceView = viewOf("appearance");
+			const scopeView = viewOf("scope");
+			const soundopenView = viewOf("soundopen");
 			const wakeView = viewOf("wake");
-			const off = notifyView.enabled === false;
-			const notifyDirty = dirtyOf("notify", NOTIFY_KEYS);
+			const off = enableView.enabled === false;
+			const enableDirty = dirtyOf("enable", ENABLE_KEYS);
+			const appearanceDirty = dirtyOf("appearance", APPEARANCE_KEYS);
+			const scopeDirty = dirtyOf("scope", SCOPE_KEYS);
+			const soundopenDirty = dirtyOf("soundopen", SOUND_OPEN_KEYS);
 			const wakeDirty = dirtyOf("wake", WAKE_KEYS);
-			const previewOpacity = Math.min(1, Math.max(0.1, Number(notifyView.cardOpacity) || 0.78));
+			const previewOpacity = Math.min(1, Math.max(0.1, Number(appearanceView.cardOpacity) || 0.78));
 			const previewDark = isDarkScheme();
 
 			return react.createElement("form", {
@@ -648,20 +673,34 @@ window.__ModuleLoader__.load({
 				react.createElement("ul", { className: "dshatt_list", key: "list" }, [
 					react.createElement(PluginCard, {
 						t,
-						key: "notify",
-						title: t("cardNotify"),
-						description: t("cardNotifyDesc"),
-						dirty: notifyDirty,
-						open: open.notify,
-						onToggle: () => setOpen((prev) => ({ ...prev, notify: !prev.notify })),
-						saving: savingCard === "notify",
-						failed: failedCard === "notify",
-						onDiscard: () => discardCard("notify"),
-						onSave: () => saveCard("notify", NOTIFY_KEYS)
+						key: "enable",
+						title: t("cardEnable"),
+						description: t("cardEnableDesc"),
+						dirty: enableDirty,
+						open: open.enable,
+						onToggle: () => setOpen((prev) => ({ ...prev, enable: !prev.enable })),
+						saving: savingCard === "enable",
+						failed: failedCard === "enable",
+						onDiscard: () => discardCard("enable"),
+						onSave: () => saveCard("enable", ENABLE_KEYS)
 					}, [
-						react.createElement(ToggleRow, { t, key: "enabled", labelKey: "enabled", hintKey: "enabledHint", checked: notifyView.enabled !== false, onChange: (v) => patchCard("notify", { enabled: v }) }),
-						react.createElement(StyleChoice, { t, key: "style", name: radioName, value: notifyView.notifyStyle, disabled: off, onChange: (v) => patchCard("notify", { notifyStyle: v }) }),
-						notifyView.notifyStyle === "system" ? null : react.createElement(FieldRow, { t, key: "opacity", labelKey: "cardOpacity", hintKey: "cardOpacityHint" },
+						react.createElement(ToggleRow, { t, key: "enabled", labelKey: "enabled", hintKey: "enabledHint", checked: enableView.enabled !== false, onChange: (v) => patchCard("enable", { enabled: v }) })
+					]),
+					react.createElement(PluginCard, {
+						t,
+						key: "appearance",
+						title: t("cardAppearance"),
+						description: t("cardAppearanceDesc"),
+						dirty: appearanceDirty,
+						open: open.appearance,
+						onToggle: () => setOpen((prev) => ({ ...prev, appearance: !prev.appearance })),
+						saving: savingCard === "appearance",
+						failed: failedCard === "appearance",
+						onDiscard: () => discardCard("appearance"),
+						onSave: () => saveCard("appearance", APPEARANCE_KEYS)
+					}, [
+						react.createElement(StyleChoice, { t, key: "style", name: radioName, value: appearanceView.notifyStyle, disabled: off, onChange: (v) => patchCard("appearance", { notifyStyle: v }) }),
+						appearanceView.notifyStyle === "system" ? null : react.createElement(FieldRow, { t, key: "opacity", labelKey: "cardOpacity", hintKey: "cardOpacityHint" },
 							react.createElement("div", { className: "dshatt_opacity", key: "opacity" }, [
 								react.createElement("input", {
 									className: "dshatt_range",
@@ -670,13 +709,13 @@ window.__ModuleLoader__.load({
 									max: "100",
 									step: "1",
 									disabled: off,
-									value: String(Math.round((notifyView.cardOpacity ?? 0.78) * 100)),
-									onChange: (event) => patchCard("notify", { cardOpacity: Number(event.target.value) / 100 }),
+									value: String(Math.round((appearanceView.cardOpacity ?? 0.78) * 100)),
+									onChange: (event) => patchCard("appearance", { cardOpacity: Number(event.target.value) / 100 }),
 									key: "range"
 								}),
-								react.createElement("span", { className: "dshatt_hint", key: "pct" }, String(Math.round((notifyView.cardOpacity ?? 0.78) * 100)) + "%")
+								react.createElement("span", { className: "dshatt_hint", key: "pct" }, String(Math.round((appearanceView.cardOpacity ?? 0.78) * 100)) + "%")
 							])),
-						notifyView.notifyStyle === "system" ? null : react.createElement(ToggleRow, { t, key: "preview", labelKey: "cardPreview", hintKey: "cardPreviewHint", checked: preview, disabled: off, onChange: setPreview }),
+						appearanceView.notifyStyle === "system" ? null : react.createElement(ToggleRow, { t, key: "preview", labelKey: "cardPreview", hintKey: "cardPreviewHint", checked: preview, disabled: off, onChange: setPreview }),
 						react.createElement(FieldRow, { t, key: "timeout", labelKey: "notifyTimeoutSec", hintKey: "notifyTimeoutSecHint" },
 							react.createElement("input", {
 								className: "dshatt_input",
@@ -685,32 +724,60 @@ window.__ModuleLoader__.load({
 								max: "86400",
 								step: "5",
 								disabled: off,
-								value: String(notifyView.notifyTimeoutSec ?? 30),
+								value: String(appearanceView.notifyTimeoutSec ?? 30),
 								onChange: (event) => {
 									const raw = event.target.value;
-									patchCard("notify", { notifyTimeoutSec: raw === "" ? "" : Number(raw) });
+									patchCard("appearance", { notifyTimeoutSec: raw === "" ? "" : Number(raw) });
 								}
-							})),
-						react.createElement(ToggleRow, { t, key: "appr", labelKey: "notifyApproval", checked: notifyView.notifyApproval !== false, disabled: off, onChange: (v) => patchCard("notify", { notifyApproval: v }) }),
-						react.createElement(ToggleRow, { t, key: "q", labelKey: "notifyQuestion", checked: notifyView.notifyQuestion !== false, disabled: off, onChange: (v) => patchCard("notify", { notifyQuestion: v }) }),
-						react.createElement(ToggleRow, { t, key: "idle", labelKey: "notifyIdle", checked: notifyView.notifyIdle !== false, disabled: off, onChange: (v) => patchCard("notify", { notifyIdle: v }) }),
-						react.createElement(ToggleRow, { t, key: "root", labelKey: "rootsOnly", hintKey: "rootsOnlyHint", checked: notifyView.rootsOnly !== false, disabled: off, onChange: (v) => patchCard("notify", { rootsOnly: v }) }),
-						react.createElement(ToggleRow, { t, key: "snd", labelKey: "soundEnabled", checked: notifyView.soundEnabled !== false, disabled: off, onChange: (v) => patchCard("notify", { soundEnabled: v }) }),
+							}))
+					]),
+					react.createElement(PluginCard, {
+						t,
+						key: "scope",
+						title: t("cardScope"),
+						description: t("cardScopeDesc"),
+						dirty: scopeDirty,
+						open: open.scope,
+						onToggle: () => setOpen((prev) => ({ ...prev, scope: !prev.scope })),
+						saving: savingCard === "scope",
+						failed: failedCard === "scope",
+						onDiscard: () => discardCard("scope"),
+						onSave: () => saveCard("scope", SCOPE_KEYS)
+					}, [
+						react.createElement(ToggleRow, { t, key: "appr", labelKey: "notifyApproval", checked: scopeView.notifyApproval !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyApproval: v }) }),
+						react.createElement(ToggleRow, { t, key: "q", labelKey: "notifyQuestion", checked: scopeView.notifyQuestion !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyQuestion: v }) }),
+						react.createElement(ToggleRow, { t, key: "idle", labelKey: "notifyIdle", checked: scopeView.notifyIdle !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyIdle: v }) }),
+						react.createElement(ToggleRow, { t, key: "root", labelKey: "rootsOnly", hintKey: "rootsOnlyHint", checked: scopeView.rootsOnly !== false, disabled: off, onChange: (v) => patchCard("scope", { rootsOnly: v }) })
+					]),
+					react.createElement(PluginCard, {
+						t,
+						key: "soundopen",
+						title: t("cardSoundOpen"),
+						description: t("cardSoundOpenDesc"),
+						dirty: soundopenDirty,
+						open: open.soundopen,
+						onToggle: () => setOpen((prev) => ({ ...prev, soundopen: !prev.soundopen })),
+						saving: savingCard === "soundopen",
+						failed: failedCard === "soundopen",
+						onDiscard: () => discardCard("soundopen"),
+						onSave: () => saveCard("soundopen", SOUND_OPEN_KEYS)
+					}, [
+						react.createElement(ToggleRow, { t, key: "snd", labelKey: "soundEnabled", checked: soundopenView.soundEnabled !== false, disabled: off, onChange: (v) => patchCard("soundopen", { soundEnabled: v }) }),
 						react.createElement(FieldRow, { t, key: "url", labelKey: "webUrl", hintKey: "webUrlHint" },
 							react.createElement("input", {
 								className: "dshatt_input",
-								value: String(notifyView.webUrl || ""),
+								value: String(soundopenView.webUrl || ""),
 								disabled: off,
-								onChange: (event) => patchCard("notify", { webUrl: event.target.value })
+								onChange: (event) => patchCard("soundopen", { webUrl: event.target.value })
 							})),
-						notifyView.notifyStyle === "system" ? null : react.createElement(OpenSessionChoice, {
+						appearanceView.notifyStyle === "system" ? null : react.createElement(OpenSessionChoice, {
 							t,
 							key: "openmode",
 							name: openModeName,
-							value: notifyView.openSessionMode,
+							value: soundopenView.openSessionMode,
 							disabled: off,
 							standalone,
-							onChange: (v) => patchCard("notify", { openSessionMode: v })
+							onChange: (v) => patchCard("soundopen", { openSessionMode: v })
 						})
 					]),
 					react.createElement(PluginCard, {
@@ -761,7 +828,7 @@ window.__ModuleLoader__.load({
 					role: "status",
 					key: "toast"
 				}, toast) : null,
-				preview && notifyView.notifyStyle !== "system" && !off ? react.createElement("div", {
+				preview && appearanceView.notifyStyle !== "system" && !off ? react.createElement("div", {
 					key: "preview",
 					className: "dshatt_preview",
 					style: {
