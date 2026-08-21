@@ -668,7 +668,7 @@ window.__ModuleLoader__.load({
 									type: "range",
 									min: "10",
 									max: "100",
-									step: "5",
+									step: "1",
 									disabled: off,
 									value: String(Math.round((notifyView.cardOpacity ?? 0.78) * 100)),
 									onChange: (event) => patchCard("notify", { cardOpacity: Number(event.target.value) / 100 }),
