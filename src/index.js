@@ -245,9 +245,16 @@ export function apply(ctx, config = {}) {
   const muxAbort = new AbortController()
   let lastUiFocusedAt = 0
   let lastUiTitle = ''
+  let lastUiTheme = 'light'
   const pendingFocus = { sessionId: null, until: 0 }
 
+  const rememberTheme = (value) => {
+    const t = String(value || '').toLowerCase()
+    if (t === 'dark' || t === 'light') lastUiTheme = t
+  }
+
   const remember = (record) => {
+    if (record.timeoutSec == null) record.timeoutSec = cfg.notifyTimeoutSec
     byToken.set(record.token, record)
     if (record.rpcId) byRpcId.set(record.rpcId, record.token)
   }
@@ -296,6 +303,7 @@ export function apply(ctx, config = {}) {
     allow: '允许',
     reject: '拒绝',
     placeholder: '下一步想让它做什么…',
+    customLabel: '其他',
     customPlaceholder: '输入你的答案',
     openSession: '回到会话',
     empty: '先写一句再发送。',
@@ -316,6 +324,7 @@ export function apply(ctx, config = {}) {
     windowTitle: lastUiTitle,
     appTitle: 'DeepSeek Harness',
     labels: choiceLabels(),
+    theme: lastUiTheme,
     ...extra,
   })
 
@@ -809,8 +818,14 @@ export function apply(ctx, config = {}) {
         const focusedSession = typeof body.sessionId === 'string' ? body.sessionId : ''
         if (typeof body.title === 'string' && body.title.trim()) {
           lastUiTitle = body.title.trim()
-          writeFocusState({ title: lastUiTitle, sessionId: focusedSession, at: Date.now() })
         }
+        rememberTheme(body.theme)
+        writeFocusState({
+          title: lastUiTitle,
+          sessionId: focusedSession,
+          at: Date.now(),
+          theme: lastUiTheme,
+        })
         if (focusedSession && focusedSession === currentFocus()) {
           pendingFocus.sessionId = null
           pendingFocus.until = 0
@@ -854,6 +869,8 @@ export function apply(ctx, config = {}) {
           kind: record.kind,
           sessionId: record.sessionId,
           questions: record.questions ?? [],
+          theme: lastUiTheme,
+          timeoutSec: record.timeoutSec ?? cfg.notifyTimeoutSec,
         })
       },
     }), 'dsh-attention: pending')

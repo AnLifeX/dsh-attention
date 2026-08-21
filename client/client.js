@@ -192,11 +192,30 @@ window.__ModuleLoader__.load({
 			}
 		}
 
+		function isDarkScheme() {
+			if (typeof document === "undefined") return false;
+			try {
+				if (document.documentElement && document.documentElement.style.colorScheme !== "") {
+					return document.body.hasAttribute("data-ds-dark-theme");
+				}
+			} catch { /* ignore */ }
+			try {
+				return window.matchMedia("(prefers-color-scheme: dark)").matches;
+			} catch {
+				return false;
+			}
+		}
+
+		function currentTheme() {
+			return isDarkScheme() ? "dark" : "light";
+		}
+
 		function postPresence(sessionId) {
 			const body = JSON.stringify({
 				focused: pageFocused(),
 				sessionId: sessionId || undefined,
-				title: (typeof document !== "undefined" && document.title) ? String(document.title) : undefined
+				title: (typeof document !== "undefined" && document.title) ? String(document.title) : undefined,
+				theme: currentTheme()
 			});
 			fetch("/dsh-attention/presence", {
 				method: "POST",
@@ -858,6 +877,20 @@ window.__ModuleLoader__.load({
 				postPresence(currentSessionId(sessions));
 			}, PRESENCE_MS);
 
+			let stopThemeWatch = () => {};
+			try {
+				if (typeof MutationObserver === "function" && document.body) {
+					const themeObs = new MutationObserver(() => {
+						postPresence(currentSessionId(sessions));
+					});
+					themeObs.observe(document.body, {
+						attributes: true,
+						attributeFilter: ["data-ds-dark-theme"]
+					});
+					stopThemeWatch = () => themeObs.disconnect();
+				}
+			} catch { stopThemeWatch = () => {}; }
+
 			const focusTimer = setInterval(() => {
 				consume();
 			}, FOCUS_POLL_MS);
@@ -873,6 +906,7 @@ window.__ModuleLoader__.load({
 				clearInterval(timer);
 				clearInterval(presenceTimer);
 				clearInterval(focusTimer);
+				try { stopThemeWatch(); } catch { /* ignore */ }
 				try { channel?.close(); } catch { /* ignore */ }
 				document.removeEventListener("visibilitychange", onVisibility);
 				document.removeEventListener("freeze", onFreeze);
