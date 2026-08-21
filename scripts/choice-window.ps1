@@ -424,7 +424,7 @@ function New-UiButton {
   $b.Cursor = [System.Windows.Input.Cursors]::Hand
   $b.FontWeight = 'SemiBold'
   $b.FontSize = 13
-  $b.FontFamily = 'Segoe UI'
+  $b.FontFamily = 'Segoe UI, Microsoft YaHei UI, Microsoft YaHei, PingFang SC'
   $b.Template = $script:btnTpl
   $b.Padding = New-Object System.Windows.Thickness 12, 0, 12, 0
   if ($Left) { $b.HorizontalContentAlignment = 'Left' }
@@ -446,7 +446,7 @@ function New-InputBox([string]$Placeholder) {
   $tb.BorderThickness = 0
   $tb.Foreground = $brFg
   $tb.FontSize = 13
-  $tb.FontFamily = 'Segoe UI'
+  $tb.FontFamily = 'Segoe UI, Microsoft YaHei UI, Microsoft YaHei, PingFang SC'
   $tb.VerticalContentAlignment = 'Center'
   $tb.CaretBrush = $brFg
   $hint = New-Object System.Windows.Controls.TextBlock
@@ -495,7 +495,7 @@ $window.Topmost = $true
 $window.ResizeMode = 'NoResize'
 $window.Width = $cardDip + 36
 $window.SizeToContent = 'Height'
-$window.FontFamily = 'Segoe UI'
+$window.FontFamily = 'Segoe UI, Microsoft YaHei UI, Microsoft YaHei, PingFang SC'
 $script:window = $window
 
 $outer = New-Object System.Windows.Controls.Grid
@@ -648,12 +648,12 @@ function Add-OpenAndPrimary($PrimaryBtn) {
   $row.Margin = New-Object System.Windows.Thickness 0, 8, 0, 4
   $open = New-UiButton -Caption (LabelOf 'openSession' (U 0x56DE 0x5230 0x4F1A 0x8BDD)) -Bg $brOpen -Fg $brOpenFg -Width 96
   $open.Add_Click({ Open-ExistingSession })
-  [System.Windows.Controls.DockPanel]::SetDock($open, 'Left')
-  [void]$row.Children.Add($open)
   if ($PrimaryBtn) {
-    [System.Windows.Controls.DockPanel]::SetDock($PrimaryBtn, 'Right')
+    [System.Windows.Controls.DockPanel]::SetDock($PrimaryBtn, 'Left')
     [void]$row.Children.Add($PrimaryBtn)
   }
+  [System.Windows.Controls.DockPanel]::SetDock($open, 'Right')
+  [void]$row.Children.Add($open)
   [void]$body.Children.Add($row)
 }
 
@@ -777,27 +777,11 @@ elseif ($kind -eq 'approval') {
   $title = [string]$data.sub
   if (-not $title) { $title = [string]$data.heading }
   Add-Title $title
-    $row = New-Object System.Windows.Controls.Primitives.UniformGrid
-  $row.Columns = 2
+    $row = New-Object System.Windows.Controls.DockPanel
+  $row.LastChildFill = $true
   $row.Margin = New-Object System.Windows.Thickness 0, 0, 0, 4
-  $deny = New-UiButton -Caption (LabelOf 'reject' 'Reject') -Bg $brDeny -Fg $brDenyFg
-  $deny.Margin = New-Object System.Windows.Thickness 0, 0, 6, 0
-  $deny.Height = 36
-  $deny.Tag = 'reject'
-  $deny.Add_Click({
-    try {
-      if ($script:busy) { return }
-      $script:busy = $true
-      Write-Inbox @{ t = $Token; a = [string]$this.Tag }
-      Close-Soon
-    } catch {
-      Write-ActLog ('click-error=' + $_.Exception.Message)
-      $script:errTb.Text = [string]$_.Exception.Message
-      $script:busy = $false
-    }
-  })
-  $allow = New-UiButton -Caption (LabelOf 'allow' 'Allow') -Bg $brAccent -Fg $brAccentFg
-  $allow.Margin = New-Object System.Windows.Thickness 6, 0, 0, 0
+  $allow = New-UiButton -Caption (LabelOf 'allow' 'Allow') -Bg $brAccent -Fg $brAccentFg -Width 88
+  $allow.Margin = New-Object System.Windows.Thickness 0, 0, 6, 0
   $allow.Height = 36
   $allow.Tag = 'allow'
   $allow.Add_Click({
@@ -812,11 +796,33 @@ elseif ($kind -eq 'approval') {
       $script:busy = $false
     }
   })
-  [void]$row.Children.Add($deny)
+  [System.Windows.Controls.DockPanel]::SetDock($allow, 'Left')
   [void]$row.Children.Add($allow)
+  $deny = New-UiButton -Caption (LabelOf 'reject' 'Reject') -Bg $brDeny -Fg $brDenyFg -Width 88
+  $deny.Margin = New-Object System.Windows.Thickness 6, 0, 0, 0
+  $deny.Height = 36
+  $deny.Tag = 'reject'
+  $deny.Add_Click({
+    try {
+      if ($script:busy) { return }
+      $script:busy = $true
+      Write-Inbox @{ t = $Token; a = [string]$this.Tag }
+      Close-Soon
+    } catch {
+      Write-ActLog ('click-error=' + $_.Exception.Message)
+      $script:errTb.Text = [string]$_.Exception.Message
+      $script:busy = $false
+    }
+  })
+  [System.Windows.Controls.DockPanel]::SetDock($deny, 'Right')
+  [void]$row.Children.Add($deny)
+  $open = New-UiButton -Caption (LabelOf 'openSession' (U 0x56DE 0x5230 0x4F1A 0x8BDD)) -Bg $brOpen -Fg $brOpenFg -Width 96
+  $open.Height = 36
+  $open.HorizontalAlignment = 'Center'
+  $open.Add_Click({ Open-ExistingSession })
+  [void]$row.Children.Add($open)
   [void]$body.Children.Add($row)
   [void]$body.Children.Add($errTb)
-  Add-OpenAndPrimary $null
 }
 elseif ($kind -eq 'idle') {
   $title = [string]$data.heading
