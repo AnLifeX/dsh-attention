@@ -63,6 +63,8 @@ window.__ModuleLoader__.load({
 			notifyTimeoutSecHint: "到点自动消失。填 0 则一直留到你关掉。系统通知屏幕上只有约 7 秒 / 25 秒两档；自制卡片按填写的秒数。",
 			cardOpacity: "卡片不透明度",
 			cardOpacityHint: "调整毛玻璃卡片的不透明程度，越小越透。",
+			cardPreview: "预览卡片",
+			cardPreviewHint: "开启后在右下角实时显示自制卡片的透明度效果。",
 			saved: "已保存",
 			saveFailed: "保存失败",
 			unsaved: "未保存",
@@ -109,6 +111,8 @@ window.__ModuleLoader__.load({
 			notifyTimeoutSecHint: "Auto-hide after this many seconds. 0 keeps it until you dismiss it. System toasts only stay about 7s or 25s on screen; the custom card uses the exact value.",
 			cardOpacity: "Card opacity",
 			cardOpacityHint: "Adjust how opaque the frosted-glass card is. Lower is more transparent.",
+			cardPreview: "Preview card",
+			cardPreviewHint: "Show a live custom-card preview at the bottom-right while adjusting opacity.",
 			saved: "Saved",
 			saveFailed: "Save failed",
 			unsaved: "Unsaved",
@@ -530,6 +534,7 @@ window.__ModuleLoader__.load({
 			const radioName = react.useRef("dshatt-notify-style-" + Math.random().toString(36).slice(2)).current;
 			const openModeName = react.useRef("dshatt-open-session-" + Math.random().toString(36).slice(2)).current;
 			const [standalone, setStandalone] = react.useState(() => isStandaloneApp());
+			const [preview, setPreview] = react.useState(false);
 
 			react.useEffect(() => {
 				let cancelled = false;
@@ -633,6 +638,8 @@ window.__ModuleLoader__.load({
 			const off = notifyView.enabled === false;
 			const notifyDirty = dirtyOf("notify", NOTIFY_KEYS);
 			const wakeDirty = dirtyOf("wake", WAKE_KEYS);
+			const previewOpacity = Math.min(1, Math.max(0.1, Number(notifyView.cardOpacity) || 0.78));
+			const previewDark = isDarkScheme();
 
 			return react.createElement("form", {
 				className: "dshatt_page",
@@ -669,6 +676,7 @@ window.__ModuleLoader__.load({
 								}),
 								react.createElement("span", { className: "dshatt_hint", key: "pct" }, String(Math.round((notifyView.cardOpacity ?? 0.78) * 100)) + "%")
 							])),
+						notifyView.notifyStyle === "system" ? null : react.createElement(ToggleRow, { t, key: "preview", labelKey: "cardPreview", hintKey: "cardPreviewHint", checked: preview, disabled: off, onChange: setPreview }),
 						react.createElement(FieldRow, { t, key: "timeout", labelKey: "notifyTimeoutSec", hintKey: "notifyTimeoutSecHint" },
 							react.createElement("input", {
 								className: "dshatt_input",
@@ -752,7 +760,35 @@ window.__ModuleLoader__.load({
 					className: "dshatt_toast" + (toastErr ? " dshatt_toast_err" : ""),
 					role: "status",
 					key: "toast"
-				}, toast) : null
+				}, toast) : null,
+				preview && notifyView.notifyStyle !== "system" && !off ? react.createElement("div", {
+					key: "preview",
+					className: "dshatt_preview",
+					style: {
+						position: "fixed",
+						right: 16,
+						bottom: 16,
+						width: 300,
+						zIndex: 100000,
+						background: previewDark ? "rgba(28, 32, 34, " + previewOpacity + ")" : "rgba(250, 252, 251, " + previewOpacity + ")",
+						border: "1px solid " + (previewDark ? "rgba(255, 255, 255, .14)" : "rgba(255, 255, 255, .5)"),
+						borderRadius: 18,
+						padding: "16px 16px 12px",
+						boxShadow: "0 16px 40px rgba(0, 0, 0, .18)",
+						backdropFilter: "blur(18px)",
+						color: previewDark ? "#ecf2f0" : "#1c2422",
+						font: "13px/1.5 Segoe UI, PingFang SC, Microsoft YaHei, sans-serif"
+					}
+				}, [
+					react.createElement("div", { key: "kicker", style: { fontSize: 11, textTransform: "uppercase", color: previewDark ? "#2dd4bf" : "#0f766e", fontWeight: 650, marginBottom: 4 } }, "dsh · 预览"),
+					react.createElement("div", { key: "title", style: { fontSize: 15, fontWeight: 600, marginBottom: 6 } }, "自制卡片透明度预览"),
+					react.createElement("div", { key: "desc", style: { fontSize: 12, opacity: .8, marginBottom: 12 } }, "拖动上方滑块可实时查看效果。"),
+					react.createElement("div", { key: "input", style: { borderRadius: 10, border: "1px solid " + (previewDark ? "rgba(64, 84, 80, .8)" : "rgba(176, 196, 190, .8)"), background: previewDark ? "rgba(36, 44, 46, .65)" : "rgba(236, 242, 240, .65)", padding: "8px 10px", marginBottom: 12, color: previewDark ? "#ecf2f0" : "#1c2422" } }, "下一步…"),
+					react.createElement("div", { key: "actions", style: { display: "flex", justifyContent: "flex-end", gap: 8 } }, [
+						react.createElement("span", { key: "ghost", style: { borderRadius: 10, padding: "6px 12px", background: previewDark ? "rgba(255,255,255,.08)" : "rgba(28,36,34,.06)", color: previewDark ? "#ecf2f0" : "#1c2422" } }, "取消"),
+						react.createElement("span", { key: "primary", style: { borderRadius: 10, padding: "6px 14px", background: previewDark ? "#2dd4bf" : "#0f766e", color: previewDark ? "#08201c" : "#fff", fontWeight: 600 } }, "发送")
+					])
+				]) : null
 			]);
 		}
 
