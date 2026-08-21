@@ -777,16 +777,16 @@ window.__ModuleLoader__.load({
 						boxShadow: "0 16px 40px rgba(0, 0, 0, .18)",
 						backdropFilter: "blur(18px)",
 						color: previewDark ? "#ecf2f0" : "#1c2422",
-						font: "13px/1.5 Segoe UI, PingFang SC, Microsoft YaHei, sans-serif"
+						font: "13px/1.5 Segoe UI, Microsoft YaHei UI, Microsoft YaHei, PingFang SC, sans-serif"
 					}
 				}, [
 					react.createElement("div", { key: "kicker", style: { fontSize: 11, textTransform: "uppercase", color: previewDark ? "#2dd4bf" : "#0f766e", fontWeight: 650, marginBottom: 4 } }, "dsh · 预览"),
-					react.createElement("div", { key: "title", style: { fontSize: 15, fontWeight: 600, marginBottom: 6 } }, "自制卡片透明度预览"),
-					react.createElement("div", { key: "desc", style: { fontSize: 12, opacity: .8, marginBottom: 12 } }, "拖动上方滑块可实时查看效果。"),
+					react.createElement("div", { key: "title", style: { fontSize: 15, fontWeight: 600, marginBottom: 6 } }, "会话已结束"),
+					react.createElement("div", { key: "desc", style: { fontSize: 12, opacity: .8, marginBottom: 12 } }, "写下一步任务，直接发给这条会话。"),
 					react.createElement("div", { key: "input", style: { borderRadius: 10, border: "1px solid " + (previewDark ? "rgba(64, 84, 80, .8)" : "rgba(176, 196, 190, .8)"), background: previewDark ? "rgba(36, 44, 46, .65)" : "rgba(236, 242, 240, .65)", padding: "8px 10px", marginBottom: 12, color: previewDark ? "#ecf2f0" : "#1c2422" } }, "下一步…"),
-					react.createElement("div", { key: "actions", style: { display: "flex", justifyContent: "flex-end", gap: 8 } }, [
-						react.createElement("span", { key: "ghost", style: { borderRadius: 10, padding: "6px 12px", background: previewDark ? "rgba(255,255,255,.08)" : "rgba(28,36,34,.06)", color: previewDark ? "#ecf2f0" : "#1c2422" } }, "取消"),
-						react.createElement("span", { key: "primary", style: { borderRadius: 10, padding: "6px 14px", background: previewDark ? "#2dd4bf" : "#0f766e", color: previewDark ? "#08201c" : "#fff", fontWeight: 600 } }, "发送")
+					react.createElement("div", { key: "actions", style: { display: "flex", justifyContent: "space-between", gap: 8 } }, [
+						react.createElement("span", { key: "send", style: { borderRadius: 10, padding: "6px 14px", background: previewDark ? "#2dd4bf" : "#0f766e", color: previewDark ? "#08201c" : "#fff", fontWeight: 600 } }, "发送"),
+						react.createElement("span", { key: "return", style: { borderRadius: 10, padding: "6px 14px", background: previewDark ? "rgba(59,130,246,.9)" : "#2563eb", color: "#fff", fontWeight: 600 } }, "回到会话")
 					])
 				]) : null
 			]);
