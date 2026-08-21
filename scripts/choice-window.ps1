@@ -20,6 +20,17 @@ trap {
 }
 Write-ActLog ('start token=' + $Token)
 
+if (-not ('DshAttention.DpiBoot' -as [type])) {
+  Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class DshAttentionDpiBoot {
+  [DllImport("shcore.dll")] public static extern int SetProcessDpiAwareness(int value);
+}
+"@
+}
+try { [void][DshAttentionDpiBoot]::SetProcessDpiAwareness(2) } catch {}
+
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
@@ -355,6 +366,16 @@ $script:btnTpl = [Windows.Markup.XamlReader]::Parse(@'
 </ControlTemplate>
 '@)
 
+$script:closeTpl = [Windows.Markup.XamlReader]::Parse(@'
+<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
+  <Border CornerRadius="10" Background="{TemplateBinding Background}" Width="32" Height="32">
+    <Viewbox Width="12" Height="12" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <Path Stroke="{TemplateBinding Foreground}" StrokeThickness="2.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M 2,2 L 14,14 M 14,2 L 2,14"/>
+    </Viewbox>
+  </Border>
+</ControlTemplate>
+'@)
+
 function New-UiButton {
   param(
     [string]$Caption,
@@ -426,6 +447,13 @@ $script:questions = @()
 $script:customBoxes = @{}
 $script:idleBox = $null
 
+$wa = [System.Windows.SystemParameters]::WorkArea
+# DIP width: same physical size as ~380px on 1080p. Cap so 4K/150% does not balloon.
+$cardDip = 380
+$maxDip = [Math]::Max(320.0, $wa.Width * 0.16)
+if ($cardDip -gt $maxDip) { $cardDip = $maxDip }
+Write-ActLog ('cardDip=' + [int]$cardDip + ' wa=' + [int]$wa.Width + 'x' + [int]$wa.Height)
+
 $window = New-Object System.Windows.Window
 $window.WindowStyle = 'None'
 $window.AllowsTransparency = $true
@@ -433,7 +461,7 @@ $window.Background = [System.Windows.Media.Brushes]::Transparent
 $window.ShowInTaskbar = $false
 $window.Topmost = $true
 $window.ResizeMode = 'NoResize'
-$window.Width = 396
+$window.Width = $cardDip + 36
 $window.SizeToContent = 'Height'
 $window.FontFamily = 'Segoe UI'
 $script:window = $window
@@ -484,9 +512,17 @@ $body.Margin = New-Object System.Windows.Thickness 16, 14, 16, 8
 $header = New-Object System.Windows.Controls.DockPanel
 $header.LastChildFill = $true
 $header.Margin = New-Object System.Windows.Thickness 0, 0, 0, 8
-$close = New-UiButton -Caption (LabelOf 'closeX' ([string][char]0x00D7)) -Bg (New-Brush 0 0 0 0) -Fg $brMuted -Width 28
-$close.Height = 24
-$close.FontWeight = 'Normal'
+$close = New-Object System.Windows.Controls.Button
+$close.Width = 32
+$close.Height = 32
+$close.Padding = New-Object System.Windows.Thickness 0
+$close.BorderThickness = 0
+$close.Background = New-Brush 36 0 0 0
+$close.Foreground = $brMuted
+$close.Cursor = [System.Windows.Input.Cursors]::Hand
+$close.Template = $script:closeTpl
+$close.VerticalAlignment = 'Center'
+$close.ToolTip = LabelOf 'close' 'Close'
 [System.Windows.Controls.DockPanel]::SetDock($close, 'Right')
 $close.Add_Click({ $script:window.Close() })
 [void]$header.Children.Add($close)

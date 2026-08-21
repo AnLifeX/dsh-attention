@@ -7,7 +7,7 @@
 [![npm version](https://img.shields.io/npm/v/dsh-attention.svg)](https://www.npmjs.com/package/dsh-attention)
 ![Windows](https://img.shields.io/badge/Windows-10%2B-0078D6?logo=windows&logoColor=white)
 
-DeepSeek Harness 插件：会话需要 **审批 / 提问 / 选择**，或一轮对话结束时，在屏幕右下角弹出可操作的提醒；浏览器标签休眠后再回来时自动刷新，避免审批卡片卡住。
+DeepSeek Harness 插件：会话需要 **审批 / 提问 / 选择**，或一轮对话结束时，在屏幕右下角弹出可操作的提醒；浏览器标签休眠后再回来时自动刷新，避免审批卡片卡住。自制卡片和系统通知仅 **Windows 10+**。
 
 ## 功能
 
@@ -61,5 +61,5 @@ dsh plugin --profile web add dsh-attention
 - 选择 / 允许 / 下一步走右下角自制窗口，不依赖系统通知按钮回调。
 - 自动刷新是对标签休眠后 pending 卡片丢失的缓解，不是给连接层打补丁。
 - Windows 10 使用 PowerShell 5.1 的 WinRT Toast；首次加载插件时会在当前用户注册 `dsh-attention:` 协议。
-- 非 Windows 宿主不弹通知，但客户端唤醒逻辑仍可用。
+- 自制卡片和系统通知只在 Windows 上弹出；其它系统装上后设置页和休眠唤醒刷新仍可用。
 - 「回到会话」按窗口标题 / PWA 名称匹配；dsh 若在后台标签里，可能只能把整个浏览器前置。普通浏览器标签建议选「新开」。
