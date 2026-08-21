@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>自制卡片外观方案</title>
+  <style>
+    :root {
+      --page: #e8eeea;
+      --ink: #1c2422;
+      --muted: #5c6b67;
+      --line: rgba(28, 36, 34, .12);
+      --panel: #fff;
+      --pick: #0f766e;
+    }
+    html[data-page="dark"] {
+      --page: #121618;
+      --ink: #ecf2f0;
+      --muted: #9aa8a4;
+      --line: rgba(236, 242, 240, .12);
+      --panel: #1a1f21;
+      --pick: #2dd4bf;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--page);
+      color: var(--ink);
+      font: 14px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    body { padding: 28px 24px 80px; }
+    header { max-width: 1180px; margin: 0 auto 22px; }
+    h1 { font-size: 22px; margin: 0 0 8px; font-weight: 650; }
+    .lead { color: var(--muted); margin: 0 0 16px; max-width: 820px; }
+    .why {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 16px;
+      color: var(--muted);
+      font-size: 13px;
+      max-width: 820px;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 16px;
+    }
+    .toolbar button, .pick-bar button {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .toolbar button.on, .card-wrap.selected {
+      outline: 2px solid var(--pick);
+      outline-offset: 3px;
+    }
+    .grid {
+      max-width: 1180px;
+      margin: 22px auto 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+      gap: 28px;
+    }
+    .card-wrap {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px 16px 14px;
+      cursor: pointer;
+    }
+    .meta { margin: 0 0 12px; }
+    .meta h2 { font-size: 15px; margin: 0 0 4px; }
+    .meta p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+    .stage {
+      min-height: 320px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      padding: 22px 8px;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255,255,255,.18), transparent 40%),
+        linear-gradient(160deg, #3d4a46 0%, #1f2624 100%);
+    }
+    html[data-page="dark"] .stage {
+      background: linear-gradient(160deg, #dce6e2 0%, #b7c4bf 100%);
+    }
+    .mock {
+      width: 332px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .kicker { font-size: 11px; letter-spacing: .04em; margin-bottom: 8px; }
+    .title { font-weight: 650; margin-bottom: 10px; }
+    .opt, .field, .btn {
+      border-radius: 12px;
+      padding: 9px 12px;
+      margin: 0 0 8px;
+    }
+    .opt { border: 1px solid transparent; }
+    .field { min-height: 34px; font-size: 12px; opacity: .75; }
+    .row { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; }
+    .btn { min-width: 88px; text-align: center; font-weight: 650; padding: 8px 14px; }
+    .hint { font-size: 11px; margin: 2px 0 6px; opacity: .7; }
+
+    /* A current neon ring */
+    .a .mock {
+      background: #fafcfb;
+      color: #1c2422;
+      border: 2px solid #0f766e;
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 0 0 12px #7ec4b8, 0 0 0 14px #0f766e;
+    }
+    .a .kicker { color: #0f766e; }
+    .a .opt { background: #ecf2f0; border-color: #b0c4be; }
+    .a .field { background: #ecf2f0; border: 1px solid #b0c4be; }
+    .a .ghost { border: 1px solid #b0c4be; background: #fff; }
+    .a .primary { background: #0f766e; color: #fff; }
+    html[data-page="dark"] .a .mock {
+      background: #1c2022; color: #ecf2f0; border-color: #2dd4bf;
+      box-shadow: 0 0 0 12px #165e55, 0 0 0 14px #2dd4bf;
+    }
+    html[data-page="dark"] .a .opt,
+    html[data-page="dark"] .a .field { background: #2a3234; border-color: #405450; color: #ecf2f0; }
+    html[data-page="dark"] .a .ghost { background: transparent; color: #99f6e4; border-color: #405450; }
+    html[data-page="dark"] .a .primary { background: #2dd4bf; color: #08201c; }
+
+    /* B fluent toast */
+    .b .mock {
+      background: #fff;
+      color: #1b1b1b;
+      border: 1px solid rgba(0,0,0,.08);
+      border-radius: 12px;
+      padding: 14px 16px 12px;
+      box-shadow: 0 12px 32px rgba(0,0,0,.16), 0 2px 8px rgba(0,0,0,.08);
+    }
+    .b .kicker { color: #616161; }
+    .b .opt { background: #f5f5f5; }
+    .b .field { background: #f5f5f5; }
+    .b .ghost { background: transparent; color: #0f766e; }
+    .b .primary { background: #0f766e; color: #fff; border-radius: 8px; }
+    html[data-page="dark"] .b .mock {
+      background: #2b2b2b; color: #f3f3f3; border-color: rgba(255,255,255,.1);
+      box-shadow: 0 12px 32px rgba(0,0,0,.45);
+    }
+    html[data-page="dark"] .b .opt,
+    html[data-page="dark"] .b .field { background: #333; color: #f3f3f3; }
+    html[data-page="dark"] .b .ghost { color: #2dd4bf; }
+
+    /* C soft glow */
+    .c .mock {
+      background: #f7faf9;
+      color: #1c2422;
+      border: 1px solid rgba(15,118,110,.28);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, .12), 0 0 32px rgba(15, 118, 110, .22);
+    }
+    .c .kicker { color: #0f766e; }
+    .c .opt { background: #eef4f2; }
+    .c .field { background: #eef4f2; }
+    .c .ghost { border: 1px solid rgba(15,118,110,.25); }
+    .c .primary { background: #0f766e; color: #fff; }
+    html[data-page="dark"] .c .mock {
+      background: #1e2426; color: #ecf2f0; border-color: rgba(45,212,191,.35);
+      box-shadow: 0 12px 32px rgba(0,0,0,.4), 0 0 36px rgba(45, 212, 191, .18);
+    }
+    html[data-page="dark"] .c .opt,
+    html[data-page="dark"] .c .field { background: #2a3234; color: #ecf2f0; }
+    html[data-page="dark"] .c .ghost { color: #99f6e4; border-color: rgba(45,212,191,.25); }
+    html[data-page="dark"] .c .primary { background: #14b8a6; color: #08201c; }
+
+    /* D glass */
+    .d .mock {
+      background: rgba(255,255,255,.72);
+      color: #1c2422;
+      border: 1px solid rgba(255,255,255,.5);
+      border-radius: 18px;
+      padding: 16px;
+      backdrop-filter: blur(18px);
+      box-shadow: 0 16px 40px rgba(0,0,0,.18);
+    }
+    .d .kicker { color: #0f766e; }
+    .d .opt { background: rgba(255,255,255,.55); }
+    .d .field { background: rgba(255,255,255,.55); }
+    .d .ghost { background: transparent; }
+    .d .primary { background: #0f766e; color: #fff; }
+    html[data-page="dark"] .d .mock {
+      background: rgba(24, 30, 32, .72); color: #ecf2f0;
+      border-color: rgba(255,255,255,.12);
+    }
+    html[data-page="dark"] .d .opt,
+    html[data-page="dark"] .d .field { background: rgba(255,255,255,.06); color: #ecf2f0; }
+    html[data-page="dark"] .d .primary { background: #2dd4bf; color: #08201c; }
+
+    /* E left bar */
+    .e .mock {
+      background: #fff;
+      color: #1c2422;
+      border: 1px solid rgba(0,0,0,.08);
+      border-radius: 14px;
+      padding: 14px 16px 12px 18px;
+      box-shadow: 0 10px 28px rgba(0,0,0,.12);
+      position: relative;
+    }
+    .e .mock::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 12px; bottom: 12px;
+      width: 4px;
+      border-radius: 0 4px 4px 0;
+      background: #0f766e;
+    }
+    .e .kicker { color: #5c6b67; }
+    .e .opt { background: #f4f6f5; }
+    .e .field { background: #f4f6f5; }
+    .e .ghost { color: #0f766e; }
+    .e .primary { background: #0f766e; color: #fff; }
+    html[data-page="dark"] .e .mock {
+      background: #22282a; color: #ecf2f0; border-color: rgba(255,255,255,.08);
+    }
+    html[data-page="dark"] .e .mock::before { background: #2dd4bf; }
+    html[data-page="dark"] .e .opt,
+    html[data-page="dark"] .e .field { background: #2c3436; color: #ecf2f0; }
+    html[data-page="dark"] .e .ghost { color: #2dd4bf; }
+    html[data-page="dark"] .e .primary { background: #14b8a6; color: #08201c; }
+
+    /* F compact banner */
+    .f .mock {
+      background: #fff;
+      color: #1c2422;
+      border: 1px solid rgba(0,0,0,.06);
+      border-radius: 22px;
+      padding: 12px 14px 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.14);
+    }
+    .f .kicker { color: #0f766e; }
+    .f .opt { border-radius: 16px; background: #f3f6f5; }
+    .f .field { border-radius: 16px; background: #f3f6f5; }
+    .f .btn { border-radius: 999px; }
+    .f .ghost { background: #f3f6f5; }
+    .f .primary { background: #0f766e; color: #fff; }
+    html[data-page="dark"] .f .mock {
+      background: #232a2c; color: #ecf2f0; border-color: rgba(255,255,255,.08);
+    }
+    html[data-page="dark"] .f .opt,
+    html[data-page="dark"] .f .field,
+    html[data-page="dark"] .f .ghost { background: #2e3638; color: #ecf2f0; }
+    html[data-page="dark"] .f .primary { background: #14b8a6; color: #08201c; }
+
+    .pick-bar {
+      position: sticky;
+      bottom: 0;
+      max-width: 1180px;
+      margin: 24px auto 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px 14px 0 0;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+    .pick-bar strong { color: var(--pick); }
+    .note { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>自制卡片外观方案</h1>
+    <p class="lead">点一张选中。右下角可切换本页亮/暗，方便对照。当前实现的锯齿，是 Windows Forms 用 <code>CreateRoundRectRgn</code> 按像素硬切窗口轮廓，没有抗锯齿；实心霓虹外框又把毛边衬得很明显。</p>
+    <div class="why">要边缘光滑：得换成 HTML/WebView2、WPF，或带逐像素透明的分层窗口。若继续用 WinForms，只能把对比度降下来（浅阴影、细边框），锯齿还在，但不会那么扎眼。</div>
+    <div class="toolbar">
+      <span class="note">预览背景</span>
+      <button type="button" id="btnLight" class="on">浅桌面</button>
+      <button type="button" id="btnDark">深桌面</button>
+    </div>
+  </header>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="pick-bar">
+    <div>
+      当前选择：<strong id="picked">未选</strong>
+      <div class="note" id="pickedNote">点卡片即可</div>
+    </div>
+    <div class="note">回复方案代号即可，例如「选 B」</div>
+  </div>
+
+  <script>
+    const schemes = [
+      {
+        id: "A",
+        cls: "a",
+        name: "A. 当前：霓虹灯框",
+        desc: "实心青绿外圈 + 2px 描边 + 呼吸变色。提醒感强，但最像游戏 UI，锯齿也最明显。实现：现有 WinForms。"
+      },
+      {
+        id: "B",
+        cls: "b",
+        name: "B. Fluent 系统通知",
+        desc: "Windows 10/11 通知风格：灰阴影、1px 淡边、没有彩光。最克制，也最接近系统卡片。WinForms 也能做，锯齿仍在但弱很多。推荐。"
+      },
+      {
+        id: "C",
+        cls: "c",
+        name: "C. 轻氛围（真光晕）",
+        desc: "细边框 + 模糊投影，不是一圈实心彩框。要光滑边缘，需要 WebView2 / 分层透明窗口。"
+      },
+      {
+        id: "D",
+        cls: "d",
+        name: "D. 毛玻璃",
+        desc: "半透明模糊，桌面会透过来。外观现代，必须 WebView2 或 WPF。Win10 上模糊性能一般。"
+      },
+      {
+        id: "E",
+        cls: "e",
+        name: "E. 左侧色条",
+        desc: "安静卡片，左边一条品牌色表示「提醒」。无彩光。WinForms 可做，边缘仍可能有轻微锯齿。"
+      },
+      {
+        id: "F",
+        cls: "f",
+        name: "F. 胶囊横幅",
+        desc: "更圆、更紧凑，接近手机横幅。适合少选项。推荐配合 WebView2 才圆得干净。"
+      }
+    ];
+
+    const inner = `
+      <div class="kicker">提醒 · 预览</div>
+      <div class="title">会话需要你选一下。</div>
+      <div class="opt">选项一：圆角浅色卡片</div>
+      <div class="opt">选项二：细边框 + 轻阴影</div>
+      <div class="hint">输入你的答案</div>
+      <div class="field"></div>
+      <div class="row">
+        <div class="btn ghost">回到会话</div>
+        <div class="btn primary">提交</div>
+      </div>`;
+
+    const grid = document.getElementById("grid");
+    schemes.forEach((s) => {
+      const wrap = document.createElement("div");
+      wrap.className = "card-wrap " + s.cls;
+      wrap.dataset.id = s.id;
+      wrap.innerHTML = `<div class="meta"><h2>${s.name}</h2><p>${s.desc}</p></div><div class="stage"><div class="mock">${inner}</div></div>`;
+      wrap.addEventListener("click", () => pick(s, wrap));
+      grid.appendChild(wrap);
+    });
+
+    let current = null;
+    function pick(s, wrap) {
+      current = s;
+      document.querySelectorAll(".card-wrap").forEach((n) => n.classList.remove("selected"));
+      wrap.classList.add("selected");
+      document.getElementById("picked").textContent = s.name;
+      document.getElementById("pickedNote").textContent = s.desc;
+    }
+
+    const btnLight = document.getElementById("btnLight");
+    const btnDark = document.getElementById("btnDark");
+    btnLight.onclick = () => {
+      document.documentElement.removeAttribute("data-page");
+      btnLight.classList.add("on");
+      btnDark.classList.remove("on");
+    };
+    btnDark.onclick = () => {
+      document.documentElement.setAttribute("data-page", "dark");
+      btnDark.classList.add("on");
+      btnLight.classList.remove("on");
+    };
+  </script>
+</body>
+</html>
