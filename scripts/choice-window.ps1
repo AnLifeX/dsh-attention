@@ -348,6 +348,7 @@ if ($theme -eq 'dark') {
   $brDenyFg = New-Brush 255 255 255 255
   $brDanger = New-Brush 255 248 113 113
   $brInput = New-Brush 160 36 44 46
+  $brInputLine = New-Brush 150 64 84 80
 } else {
   $brGlass = New-Brush $glassAlpha 255 255 255
   $brGlassLine = New-Brush 110 255 255 255
@@ -363,6 +364,7 @@ if ($theme -eq 'dark') {
   $brDenyFg = New-Brush 255 255 255 255
   $brDanger = New-Brush 255 220 38 38
   $brInput = New-Brush 170 245 248 247
+  $brInputLine = New-Brush 170 176 196 190
 }
 
 $script:btnTpl = [Windows.Markup.XamlReader]::Parse(@'
@@ -413,6 +415,8 @@ function New-InputBox([string]$Placeholder) {
   $wrap = New-Object System.Windows.Controls.Border
   $wrap.CornerRadius = New-Object System.Windows.CornerRadius 10
   $wrap.Background = $brInput
+  $wrap.BorderBrush = $brInputLine
+  $wrap.BorderThickness = New-Object System.Windows.Thickness 1
   $wrap.Padding = New-Object System.Windows.Thickness 10, 7, 10, 7
   $wrap.Height = 34
   $grid = New-Object System.Windows.Controls.Grid
