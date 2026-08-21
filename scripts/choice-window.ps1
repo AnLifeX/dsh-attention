@@ -58,6 +58,25 @@ public static class DshAttentionNative {
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextLength(IntPtr hWnd);
   [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
   [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, int dwFlags, int dwExtraInfo);
+  [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint dwFlags);
+  [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+  [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr hMonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT {
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct MONITORINFO {
+    public int cbSize;
+    public RECT rcMonitor;
+    public RECT rcWork;
+    public uint dwFlags;
+  }
 
   public static string ListVisibleWindows() {
     var sb = new StringBuilder();
@@ -325,6 +344,8 @@ function Get-TimerBrush([double]$Ratio) {
 
 $theme = Resolve-Theme
 Write-ActLog ('theme=' + $theme)
+
+$script:focusHwnd = [DshAttentionNative]::GetForegroundWindow()
 
 $cardOpacity = 0.78
 try {
@@ -834,8 +855,34 @@ $card.Child = $dock
 $outer.Children.Add($card) | Out-Null
 $window.Content = $outer
 
+function Get-FocusedWorkArea {
+  $fallback = [System.Windows.SystemParameters]::WorkArea
+  try {
+    $hwnd = $script:focusHwnd
+    if ($hwnd -eq [IntPtr]::Zero) { return $fallback }
+    $monitor = [DshAttentionNative]::MonitorFromWindow($hwnd, 2)
+    if ($monitor -eq [IntPtr]::Zero) { return $fallback }
+    $info = New-Object DshAttentionNative+MONITORINFO
+    $info.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf($info)
+    if (-not [DshAttentionNative]::GetMonitorInfo($monitor, [ref]$info)) { return $fallback }
+    $dpiX = [uint32]96
+    $dpiY = [uint32]96
+    $hr = [DshAttentionNative]::GetDpiForMonitor($monitor, 0, [ref]$dpiX, [ref]$dpiY)
+    if ($hr -ne 0) { $dpiX = 96; $dpiY = 96 }
+    $scaleX = 96.0 / [double]$dpiX
+    $scaleY = 96.0 / [double]$dpiY
+    $x = [double]$info.rcWork.Left * $scaleX
+    $y = [double]$info.rcWork.Top * $scaleY
+    $w = [double]($info.rcWork.Right - $info.rcWork.Left) * $scaleX
+    $h = [double]($info.rcWork.Bottom - $info.rcWork.Top) * $scaleY
+    return New-Object System.Windows.Rect($x, $y, $w, $h)
+  } catch {
+    return $fallback
+  }
+}
+
 function Place-BottomRight {
-  $wa = [System.Windows.SystemParameters]::WorkArea
+  $wa = Get-FocusedWorkArea
   $w = $script:window.ActualWidth
   $h = $script:window.ActualHeight
   if ($w -le 0) { $w = $script:window.Width }
