@@ -65,8 +65,6 @@ window.__ModuleLoader__.load({
 			cardOpacityHint: "调整毛玻璃卡片的不透明程度，越小越透。",
 			cardPreview: "预览卡片",
 			cardPreviewHint: "开启后在右下角实时显示自制卡片的透明度效果。",
-			cardEnable: "通知开关",
-			cardEnableDesc: "总开关，关掉后不再弹提醒。",
 			cardAppearance: "卡片外观",
 			cardAppearanceDesc: "样式、不透明度、停留时间。",
 			cardScope: "提醒范围",
@@ -121,8 +119,6 @@ window.__ModuleLoader__.load({
 			cardOpacityHint: "Adjust how opaque the frosted-glass card is. Lower is more transparent.",
 			cardPreview: "Preview card",
 			cardPreviewHint: "Show a live custom-card preview at the bottom-right while adjusting opacity.",
-			cardEnable: "Notifications",
-			cardEnableDesc: "Master switch. Turns off all reminder pop-ups.",
 			cardAppearance: "Card appearance",
 			cardAppearanceDesc: "Style, opacity, and how long the card stays.",
 			cardScope: "Alert scope",
@@ -139,7 +135,6 @@ window.__ModuleLoader__.load({
 			collapse: "Collapse"
 		};
 
-		const ENABLE_KEYS = ["enabled"];
 		const APPEARANCE_KEYS = ["notifyStyle", "notifyTimeoutSec", "cardOpacity"];
 		const SCOPE_KEYS = ["notifyApproval", "notifyQuestion", "notifyIdle", "rootsOnly"];
 		const SOUND_OPEN_KEYS = ["soundEnabled", "webUrl", "openSessionMode"];
@@ -343,6 +338,17 @@ window.__ModuleLoader__.load({
 				".dshatt_row>label.dshatt_copy{cursor:pointer}",
 				".dshatt_label{font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary);line-height:1.45}",
 				".dshatt_hint{font-size:12px;line-height:1.45;color:var(--dsw-alias-label-tertiary)}",
+				".dshatt_settings_intro{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 2px 2px}",
+				".dshatt_settings_intro_copy{display:flex;flex-direction:column;gap:4px;min-width:0}",
+				".dshatt_settings_intro_title{font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary)}",
+				".dshatt_settings_intro_desc{font-size:12.5px;color:var(--dsw-alias-label-tertiary);line-height:1.45}",
+				".dshatt_switch{position:relative;display:inline-block;width:40px;height:22px;flex:none}",
+				".dshatt_switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;z-index:2}",
+				".dshatt_switch .track{position:absolute;inset:0;border-radius:999px;background:rgba(128,128,128,.35);transition:background .16s}",
+				".dshatt_switch .thumb{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .16s}",
+				".dshatt_switch input:checked + .track{background:var(--dsw-alias-brand-primary,#0f766e)}",
+				".dshatt_switch input:checked + .track .thumb{transform:translateX(18px)}",
+				".dshatt_switch input:disabled + .track{opacity:.4;cursor:default}",
 				".dshatt_check{width:16px;height:16px;margin:2px 0 0;flex:none;accent-color:var(--dsw-alias-brand-primary,#0f766e);cursor:pointer}",
 				".dshatt_choice{display:flex;flex-direction:column;gap:10px;padding:4px 0 8px}",
 				".dshatt_choice_item{display:flex;align-items:flex-start;gap:10px;margin:0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.16));border-radius:10px;cursor:pointer}",
@@ -473,6 +479,24 @@ window.__ModuleLoader__.load({
 			]);
 		}
 
+		function Switch({ checked, disabled, onChange, label }) {
+			return react.createElement("label", { className: "dshatt_switch", title: label }, [
+				react.createElement("input", {
+					type: "checkbox",
+					checked: checked === true,
+					disabled: disabled === true,
+					onChange: (event) => {
+						event.stopPropagation();
+						onChange(event.target.checked);
+					},
+					key: "i"
+				}),
+				react.createElement("span", { className: "track", key: "t" }, [
+					react.createElement("span", { className: "thumb", key: "th" })
+				])
+			]);
+		}
+
 		function FieldRow({ t, labelKey, hintKey, children }) {
 			return react.createElement("div", { className: "dshatt_row dshatt_row_stack" }, [
 				react.createElement("span", { className: "dshatt_copy", key: "c" }, [
@@ -544,10 +568,10 @@ window.__ModuleLoader__.load({
 
 		function SettingsPage({ t }) {
 			const [saved, setSaved] = react.useState(null);
-			const [drafts, setDrafts] = react.useState({ enable: {}, appearance: {}, scope: {}, soundopen: {}, wake: {} });
+			const [drafts, setDrafts] = react.useState({ appearance: {}, scope: {}, soundopen: {}, wake: {} });
 			const [toast, setToast] = react.useState("");
 			const [toastErr, setToastErr] = react.useState(false);
-			const [open, setOpen] = react.useState({ enable: true, appearance: true, scope: false, soundopen: false, wake: false });
+			const [open, setOpen] = react.useState({ appearance: true, scope: false, soundopen: false, wake: false });
 			const [savingCard, setSavingCard] = react.useState(null);
 			const [failedCard, setFailedCard] = react.useState(null);
 			const radioName = react.useRef("dshatt-notify-style-" + Math.random().toString(36).slice(2)).current;
@@ -650,6 +674,27 @@ window.__ModuleLoader__.load({
 				}).finally(() => setSavingCard(null));
 			};
 
+			const saveEnabled = (value) => {
+				if (!saved || savingCard) return;
+				const payload = { enabled: value === true };
+				setSavingCard("enable");
+				setFailedCard(null);
+				fetch("/dsh-attention/config", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(payload),
+					cache: "no-store"
+				}).then((response) => response.json().then((data) => ({ response, data })).catch(() => ({ response, data: null }))).then(({ response, data }) => {
+					if (!response.ok || !data?.ok) throw new Error("save-failed");
+					setSaved((prev) => ({ ...(prev || {}), ...data, ...payload }));
+					flash(t("saved"), false);
+					try { window.dispatchEvent(new CustomEvent("dsh-attention-config", { detail: data })); } catch { /* ignore */ }
+				}).catch(() => {
+					setFailedCard("enable");
+					flash(t("saveFailed"), true);
+				}).finally(() => setSavingCard(null));
+			};
+
 			if (!saved) return react.createElement("div", { className: "dshatt_page" });
 
 			const enableView = viewOf("enable");
@@ -658,7 +703,6 @@ window.__ModuleLoader__.load({
 			const soundopenView = viewOf("soundopen");
 			const wakeView = viewOf("wake");
 			const off = enableView.enabled === false;
-			const enableDirty = dirtyOf("enable", ENABLE_KEYS);
 			const appearanceDirty = dirtyOf("appearance", APPEARANCE_KEYS);
 			const scopeDirty = dirtyOf("scope", SCOPE_KEYS);
 			const soundopenDirty = dirtyOf("soundopen", SOUND_OPEN_KEYS);
@@ -670,22 +714,14 @@ window.__ModuleLoader__.load({
 				className: "dshatt_page",
 				onSubmit: (event) => event.preventDefault()
 			}, [
-				react.createElement("ul", { className: "dshatt_list", key: "list" }, [
-					react.createElement(PluginCard, {
-						t,
-						key: "enable",
-						title: t("cardEnable"),
-						description: t("cardEnableDesc"),
-						dirty: enableDirty,
-						open: open.enable,
-						onToggle: () => setOpen((prev) => ({ ...prev, enable: !prev.enable })),
-						saving: savingCard === "enable",
-						failed: failedCard === "enable",
-						onDiscard: () => discardCard("enable"),
-						onSave: () => saveCard("enable", ENABLE_KEYS)
-					}, [
-						react.createElement(ToggleRow, { t, key: "enabled", labelKey: "enabled", hintKey: "enabledHint", checked: enableView.enabled !== false, onChange: (v) => patchCard("enable", { enabled: v }) })
+				react.createElement("div", { className: "dshatt_settings_intro", key: "intro" }, [
+					react.createElement("div", { className: "dshatt_settings_intro_copy", key: "copy" }, [
+						react.createElement("span", { className: "dshatt_settings_intro_title", key: "title" }, t("nav")),
+						react.createElement("span", { className: "dshatt_settings_intro_desc", key: "desc" }, t("cardNotifyDesc"))
 					]),
+					react.createElement(Switch, { key: "switch", checked: enableView.enabled !== false, disabled: savingCard === "enable", onChange: saveEnabled, label: t("enabled") })
+				]),
+				react.createElement("ul", { className: "dshatt_list", key: "list" }, [
 					react.createElement(PluginCard, {
 						t,
 						key: "appearance",
