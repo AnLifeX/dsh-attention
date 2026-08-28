@@ -34,7 +34,7 @@ dsh plugin --profile web add dsh-attention
 ## 更新
 
 ```bash
-dsh plugin --profile web up --latest dsh-attention
+dsh plugin --profile web add dsh-attention@latest
 ```
 
 更新完成后重启 `dsh web`。
