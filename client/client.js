@@ -35,19 +35,15 @@ window.__ModuleLoader__.load({
 			enabled: "启用通知",
 			enabledHint: "关掉后不再提醒，设置页仍然可用。",
 			notifyStyle: "卡片样式",
-			notifyStyleHint: "二选一，不会同时弹两种。",
 			styleSystem: "系统通知卡片",
 			styleSystemHint: "只支持点一下打开会话，由系统交给浏览器处理，不能复用已打开的 Edge 应用。不能在通知里选择、回复或提权。",
 			styleCustom: "自制卡片",
-			styleCustomHint: "右下角窗口。支持单选、多选、自定义输入、提权允许/拒绝，以及一轮结束后写下一步。卡片上的「回到会话」按下面的复用 / 新开设置执行。",
+			styleCustomHint: "右下角窗口。支持单选、多选、自定义输入、提权允许/拒绝，以及一轮结束后写下一步。卡片上的「回到会话」按提醒范围里的复用 / 新开设置执行。",
 			notifyApproval: "提权审批",
 			notifyQuestion: "提问 / 选择",
 			notifyIdle: "一轮对话结束",
-			rootsOnly: "只提醒根会话",
-			rootsOnlyHint: "子代理的审批和提问不刷屏。",
+			notifySubagentIdle: "子代理会话结束",
 			soundEnabled: "提示音",
-			webUrl: "页面地址",
-			webUrlHint: "自制卡片「回到会话」用来找已有窗口，或作为新开时的地址。",
 			openSessionMode: "回到会话",
 			openSessionModeHint: "建议把 dsh 安装成 Edge 应用后选「复用已有窗口」；在普通浏览器标签里请选「新开」。",
 			openReuse: "复用已有窗口",
@@ -56,21 +52,19 @@ window.__ModuleLoader__.load({
 			openNewHint: "每次都新开一个页面打开该会话。普通浏览器标签请用这个。",
 			openReuseWarn: "当前不是 Edge 应用，而是普通浏览器标签。这时选「复用已有窗口」经常找不到标签或看起来没反应，建议改成「新开」，或把本站安装成应用后再选复用。",
 			hiddenReloadSec: "隐藏多久后刷新（秒）",
-			hiddenReloadSecHint: "标签切走超过这么多秒再回来时，刷新一次，避免卡片卡住。改完点保存后立即生效。",
-			cooldownMs: "同一会话提醒间隔（毫秒）",
-			cooldownMsHint: "同一会话连续弹提醒的最短间隔，避免刷屏。",
+			hiddenReloadSecHint: "标签切走超过这么多秒再回来时，刷新一次，避免卡片卡住。填 0 则不自动刷新，改完点保存后立即生效。",
+			cooldownMs: "同一会话提醒间隔（秒）",
+			cooldownMsHint: "同一会话连续弹提醒的最短间隔，避免刷屏。可填写小数。",
 			notifyTimeoutSec: "停留时间（秒）",
 			notifyTimeoutSecHint: "到点自动消失。填 0 则一直留到你关掉。系统通知屏幕上只有约 7 秒 / 25 秒两档；自制卡片按填写的秒数。",
 			cardOpacity: "卡片不透明度",
 			cardOpacityHint: "调整毛玻璃卡片的不透明程度，越小越透。",
 			cardPreview: "预览卡片",
-			cardPreviewHint: "开启后在右下角实时显示自制卡片的透明度效果。",
+			cardPreviewHint: "开启后在右下角播放实际入场动画，并实时显示透明度效果。",
 			cardAppearance: "卡片外观",
 			cardAppearanceDesc: "样式、不透明度、停留时间。",
 			cardScope: "提醒范围",
-			cardScopeDesc: "哪些事件需要弹提醒。",
-			cardSoundOpen: "声音与打开方式",
-			cardSoundOpenDesc: "提示音、页面地址、回到会话方式。",
+			cardScopeDesc: "哪些事件需要弹提醒，以及提示音和回到会话方式。",
 			saved: "已保存",
 			saveFailed: "保存失败",
 			unsaved: "未保存",
@@ -89,19 +83,15 @@ window.__ModuleLoader__.load({
 			enabled: "Enable notifications",
 			enabledHint: "Turns off notifications only. This settings page stays available.",
 			notifyStyle: "Card style",
-			notifyStyleHint: "Pick one. Both styles never show together.",
 			styleSystem: "System toast",
 			styleSystemHint: "Tap to open the session in the browser. Cannot reuse an already-open Edge app. No in-toast choices, replies, or approvals.",
 			styleCustom: "Custom card",
-			styleCustomHint: "A bottom-right window for single-select, multi-select, custom answers, allow/deny, and a next-step prompt when a turn ends. Return to session on the card follows the Reuse / Open new setting below.",
+			styleCustomHint: "A bottom-right window for single-select, multi-select, custom answers, allow/deny, and a next-step prompt when a turn ends. Return to session follows the setting under Notification scope.",
 			notifyApproval: "Sandbox approvals",
 			notifyQuestion: "Questions / choices",
 			notifyIdle: "Turn ended",
-			rootsOnly: "Root sessions only",
-			rootsOnlyHint: "Ignore subagent approvals and questions.",
+			notifySubagentIdle: "Subagent turn ended",
 			soundEnabled: "Sound",
-			webUrl: "Page URL",
-			webUrlHint: "Used by Return to session on the custom card to find an existing window, or as the address when opening a new one.",
 			openSessionMode: "Return to session",
 			openSessionModeHint: "If dsh is installed as an Edge app, choose Reuse existing window. In a normal browser tab, choose Open new.",
 			openReuse: "Reuse existing window",
@@ -110,21 +100,19 @@ window.__ModuleLoader__.load({
 			openNewHint: "Always open a new page for that session. Use this in a normal browser tab.",
 			openReuseWarn: "This window is a normal browser tab, not an Edge app. Reuse existing window often fails to find the tab. Choose Open new, or install this site as an app and then use Reuse.",
 			hiddenReloadSec: "Reload after hidden (seconds)",
-			hiddenReloadSecHint: "If the tab was away longer than this, reload once when you come back so pending cards return. Takes effect as soon as you save.",
-			cooldownMs: "Minimum gap between alerts (ms)",
-			cooldownMsHint: "Ignore another reminder for the same session until this many milliseconds have passed.",
+			hiddenReloadSecHint: "If the tab was away longer than this, reload once when you come back so pending cards return. Set to 0 to disable automatic reloads. Takes effect as soon as you save.",
+			cooldownMs: "Minimum gap between alerts (seconds)",
+			cooldownMsHint: "Ignore another reminder for the same session until this many seconds have passed. Decimals are supported.",
 			notifyTimeoutSec: "Stay on screen (seconds)",
 			notifyTimeoutSecHint: "Auto-hide after this many seconds. 0 keeps it until you dismiss it. System toasts only stay about 7s or 25s on screen; the custom card uses the exact value.",
 			cardOpacity: "Card opacity",
 			cardOpacityHint: "Adjust how opaque the frosted-glass card is. Lower is more transparent.",
 			cardPreview: "Preview card",
-			cardPreviewHint: "Show a live custom-card preview at the bottom-right while adjusting opacity.",
+			cardPreviewHint: "Play the real entrance motion at the bottom-right and preview opacity live.",
 			cardAppearance: "Card appearance",
 			cardAppearanceDesc: "Style, opacity, and how long the card stays.",
 			cardScope: "Alert scope",
-			cardScopeDesc: "Which events should show a reminder.",
-			cardSoundOpen: "Sound & open",
-			cardSoundOpenDesc: "Sound, page URL, and return-to-session behavior.",
+			cardScopeDesc: "Which events should show a reminder, plus sound and return-to-session behavior.",
 			saved: "Saved",
 			saveFailed: "Save failed",
 			unsaved: "Unsaved",
@@ -136,8 +124,7 @@ window.__ModuleLoader__.load({
 		};
 
 		const APPEARANCE_KEYS = ["notifyStyle", "notifyTimeoutSec", "cardOpacity"];
-		const SCOPE_KEYS = ["notifyApproval", "notifyQuestion", "notifyIdle", "rootsOnly"];
-		const SOUND_OPEN_KEYS = ["soundEnabled", "webUrl", "openSessionMode"];
+		const SCOPE_KEYS = ["notifyApproval", "notifyQuestion", "notifyIdle", "notifySubagentIdle", "soundEnabled", "openSessionMode"];
 		const WAKE_KEYS = ["hiddenReloadMs", "cooldownMs"];
 
 		function pickKeys(obj, keys) {
@@ -161,7 +148,7 @@ window.__ModuleLoader__.load({
 				} else if (key === "cardOpacity") {
 					left = Math.round((Number.isFinite(Number(left)) ? Math.min(1, Math.max(0.1, Number(left))) : 0.78) * 100) / 100;
 					right = Math.round((Number.isFinite(Number(right)) ? Math.min(1, Math.max(0.1, Number(right))) : 0.78) * 100) / 100;
-				} else if (key === "webUrl" || key === "notifyStyle" || key === "openSessionMode") {
+				} else if (key === "notifyStyle" || key === "openSessionMode") {
 					left = String(left || "").trim();
 					right = String(right || "").trim();
 				}
@@ -349,7 +336,6 @@ window.__ModuleLoader__.load({
 				".dshatt_switch input:checked + .track{background:var(--dsw-alias-brand-primary,#0f766e)}",
 				".dshatt_switch input:checked + .track .thumb{transform:translateX(18px)}",
 				".dshatt_switch input:disabled + .track{opacity:.4;cursor:default}",
-				".dshatt_check{width:16px;height:16px;margin:2px 0 0;flex:none;accent-color:var(--dsw-alias-brand-primary,#0f766e);cursor:pointer}",
 				".dshatt_choice{display:flex;flex-direction:column;gap:10px;padding:4px 0 8px}",
 				".dshatt_choice_item{display:flex;align-items:flex-start;gap:10px;margin:0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.16));border-radius:10px;cursor:pointer}",
 				".dshatt_choice_item_on{border-color:var(--dsw-alias-brand-primary,#0f766e);background:rgba(15,118,110,.08)}",
@@ -369,6 +355,13 @@ window.__ModuleLoader__.load({
 				".dshatt_input:focus{border-color:var(--dsw-alias-brand-primary,#0f766e);box-shadow:0 0 0 2px rgba(15,118,110,.22)}",
 				".dshatt_toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--dsw-alias-state-success-primary,#10b981);color:#fff;padding:8px 18px;border-radius:999px;font-size:12.5px;font-weight:500;z-index:100000}",
 				".dshatt_toast_err{background:var(--dsw-alias-state-error-primary,#ef4444)}",
+				"@keyframes dshatt_preview_enter{from{opacity:0;transform:translateY(28px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}",
+				".dshatt_preview{transform-origin:50% 100%;animation:dshatt_preview_enter .28s cubic-bezier(.16,1,.3,1) both;will-change:transform,opacity}",
+				".dshatt_preview_btn{appearance:none;border:0;font:inherit;cursor:pointer;transition:transform .1s cubic-bezier(.16,1,.3,1),opacity .1s cubic-bezier(.16,1,.3,1)}",
+				".dshatt_preview_btn:hover{opacity:.92}",
+				".dshatt_preview_btn:active{opacity:.82;transform:translateY(1px) scale(.96)}",
+				".dshatt_preview_btn:focus-visible{outline:2px solid currentColor;outline-offset:2px}",
+				"@media (prefers-reduced-motion:reduce){.dshatt_preview{animation:none;will-change:auto}.dshatt_preview_btn{transition:none}}",
 				"[data-dshatt-nav]>[class*='_navIcon']{display:none}",
 				"[data-dshatt-nav]:before{content:'';background:currentColor;flex:none;width:16px;height:16px;-webkit-mask:" + BELL_MASK + ";mask:" + BELL_MASK + "}"
 			].join("\n");
@@ -383,8 +376,7 @@ window.__ModuleLoader__.load({
 			];
 			return react.createElement("div", { className: "dshatt_row dshatt_row_stack" }, [
 				react.createElement("span", { className: "dshatt_copy", key: "c" }, [
-					react.createElement("span", { className: "dshatt_label", key: "l" }, t("notifyStyle")),
-					react.createElement("span", { className: "dshatt_hint", key: "h" }, t("notifyStyleHint"))
+					react.createElement("span", { className: "dshatt_label", key: "l" }, t("notifyStyle"))
 				]),
 				react.createElement("div", { className: "dshatt_choice", key: "opts" }, options.map((opt) => {
 					const on = current === opt.id;
@@ -463,26 +455,16 @@ window.__ModuleLoader__.load({
 					react.createElement("span", { className: "dshatt_label", key: "l" }, t(labelKey)),
 					hintKey ? react.createElement("span", { className: "dshatt_hint", key: "h" }, t(hintKey)) : null
 				]),
-				react.createElement("input", {
-					id,
-					type: "checkbox",
-					className: "dshatt_check",
-					checked: checked === true,
-					disabled: disabled === true,
-					onClick: (event) => event.stopPropagation(),
-					onChange: (event) => {
-						event.stopPropagation();
-						onChange(event.target.checked);
-					},
-					key: "i"
-				})
+				react.createElement(Switch, { id, checked, disabled, onChange, label: t(labelKey), key: "i" })
 			]);
 		}
 
-		function Switch({ checked, disabled, onChange, label }) {
+		function Switch({ id, checked, disabled, onChange, label }) {
 			return react.createElement("label", { className: "dshatt_switch", title: label }, [
 				react.createElement("input", {
+					id,
 					type: "checkbox",
+					"aria-label": label,
 					checked: checked === true,
 					disabled: disabled === true,
 					onChange: (event) => {
@@ -568,10 +550,10 @@ window.__ModuleLoader__.load({
 
 		function SettingsPage({ t }) {
 			const [saved, setSaved] = react.useState(null);
-			const [drafts, setDrafts] = react.useState({ appearance: {}, scope: {}, soundopen: {}, wake: {} });
+			const [drafts, setDrafts] = react.useState({ appearance: {}, scope: {}, wake: {} });
 			const [toast, setToast] = react.useState("");
 			const [toastErr, setToastErr] = react.useState(false);
-			const [open, setOpen] = react.useState({ appearance: true, scope: false, soundopen: false, wake: false });
+			const [open, setOpen] = react.useState({ appearance: false, scope: true, wake: false });
 			const [savingCard, setSavingCard] = react.useState(null);
 			const [failedCard, setFailedCard] = react.useState(null);
 			const radioName = react.useRef("dshatt-notify-style-" + Math.random().toString(36).slice(2)).current;
@@ -583,7 +565,7 @@ window.__ModuleLoader__.load({
 				let cancelled = false;
 				readConfig().then((data) => {
 					if (cancelled || !data) return;
-					setSaved({ notifyTimeoutSec: 30, openSessionMode: "reuse", ...data });
+					setSaved({ notifyTimeoutSec: 30, openSessionMode: "reuse", notifySubagentIdle: false, ...data });
 				});
 				return () => { cancelled = true; };
 			}, []);
@@ -632,7 +614,6 @@ window.__ModuleLoader__.load({
 			const saveCard = (card, keys) => {
 				if (!saved || savingCard) return;
 				const payload = pickKeys(viewOf(card), keys);
-				if (Object.hasOwn(payload, "webUrl")) payload.webUrl = String(payload.webUrl || "").trim();
 				if (Object.hasOwn(payload, "openSessionMode")) payload.openSessionMode = payload.openSessionMode === "new" ? "new" : "reuse";
 				if (Object.hasOwn(payload, "hiddenReloadMs")) {
 					const n = Number(payload.hiddenReloadMs);
@@ -700,12 +681,10 @@ window.__ModuleLoader__.load({
 			const enableView = viewOf("enable");
 			const appearanceView = viewOf("appearance");
 			const scopeView = viewOf("scope");
-			const soundopenView = viewOf("soundopen");
 			const wakeView = viewOf("wake");
 			const off = enableView.enabled === false;
 			const appearanceDirty = dirtyOf("appearance", APPEARANCE_KEYS);
 			const scopeDirty = dirtyOf("scope", SCOPE_KEYS);
-			const soundopenDirty = dirtyOf("soundopen", SOUND_OPEN_KEYS);
 			const wakeDirty = dirtyOf("wake", WAKE_KEYS);
 			const previewOpacity = Math.min(1, Math.max(0.1, Number(appearanceView.cardOpacity) || 0.78));
 			const previewDark = isDarkScheme();
@@ -722,6 +701,34 @@ window.__ModuleLoader__.load({
 					react.createElement(Switch, { key: "switch", checked: enableView.enabled !== false, disabled: savingCard === "enable", onChange: saveEnabled, label: t("enabled") })
 				]),
 				react.createElement("ul", { className: "dshatt_list", key: "list" }, [
+					react.createElement(PluginCard, {
+						t,
+						key: "scope",
+						title: t("cardScope"),
+						description: t("cardScopeDesc"),
+						dirty: scopeDirty,
+						open: open.scope,
+						onToggle: () => setOpen((prev) => ({ ...prev, scope: !prev.scope })),
+						saving: savingCard === "scope",
+						failed: failedCard === "scope",
+						onDiscard: () => discardCard("scope"),
+						onSave: () => saveCard("scope", SCOPE_KEYS)
+					}, [
+						react.createElement(ToggleRow, { t, key: "appr", labelKey: "notifyApproval", checked: scopeView.notifyApproval !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyApproval: v }) }),
+						react.createElement(ToggleRow, { t, key: "q", labelKey: "notifyQuestion", checked: scopeView.notifyQuestion !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyQuestion: v }) }),
+						react.createElement(ToggleRow, { t, key: "idle", labelKey: "notifyIdle", checked: scopeView.notifyIdle !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyIdle: v }) }),
+						react.createElement(ToggleRow, { t, key: "subidle", labelKey: "notifySubagentIdle", checked: scopeView.notifySubagentIdle === true, disabled: off, onChange: (v) => patchCard("scope", { notifySubagentIdle: v }) }),
+						react.createElement(ToggleRow, { t, key: "snd", labelKey: "soundEnabled", checked: scopeView.soundEnabled !== false, disabled: off, onChange: (v) => patchCard("scope", { soundEnabled: v }) }),
+						appearanceView.notifyStyle === "system" ? null : react.createElement(OpenSessionChoice, {
+							t,
+							key: "openmode",
+							name: openModeName,
+							value: scopeView.openSessionMode,
+							disabled: off,
+							standalone,
+							onChange: (v) => patchCard("scope", { openSessionMode: v })
+						})
+					]),
 					react.createElement(PluginCard, {
 						t,
 						key: "appearance",
@@ -769,55 +776,6 @@ window.__ModuleLoader__.load({
 					]),
 					react.createElement(PluginCard, {
 						t,
-						key: "scope",
-						title: t("cardScope"),
-						description: t("cardScopeDesc"),
-						dirty: scopeDirty,
-						open: open.scope,
-						onToggle: () => setOpen((prev) => ({ ...prev, scope: !prev.scope })),
-						saving: savingCard === "scope",
-						failed: failedCard === "scope",
-						onDiscard: () => discardCard("scope"),
-						onSave: () => saveCard("scope", SCOPE_KEYS)
-					}, [
-						react.createElement(ToggleRow, { t, key: "appr", labelKey: "notifyApproval", checked: scopeView.notifyApproval !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyApproval: v }) }),
-						react.createElement(ToggleRow, { t, key: "q", labelKey: "notifyQuestion", checked: scopeView.notifyQuestion !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyQuestion: v }) }),
-						react.createElement(ToggleRow, { t, key: "idle", labelKey: "notifyIdle", checked: scopeView.notifyIdle !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyIdle: v }) }),
-						react.createElement(ToggleRow, { t, key: "root", labelKey: "rootsOnly", hintKey: "rootsOnlyHint", checked: scopeView.rootsOnly !== false, disabled: off, onChange: (v) => patchCard("scope", { rootsOnly: v }) })
-					]),
-					react.createElement(PluginCard, {
-						t,
-						key: "soundopen",
-						title: t("cardSoundOpen"),
-						description: t("cardSoundOpenDesc"),
-						dirty: soundopenDirty,
-						open: open.soundopen,
-						onToggle: () => setOpen((prev) => ({ ...prev, soundopen: !prev.soundopen })),
-						saving: savingCard === "soundopen",
-						failed: failedCard === "soundopen",
-						onDiscard: () => discardCard("soundopen"),
-						onSave: () => saveCard("soundopen", SOUND_OPEN_KEYS)
-					}, [
-						react.createElement(ToggleRow, { t, key: "snd", labelKey: "soundEnabled", checked: soundopenView.soundEnabled !== false, disabled: off, onChange: (v) => patchCard("soundopen", { soundEnabled: v }) }),
-						react.createElement(FieldRow, { t, key: "url", labelKey: "webUrl", hintKey: "webUrlHint" },
-							react.createElement("input", {
-								className: "dshatt_input",
-								value: String(soundopenView.webUrl || ""),
-								disabled: off,
-								onChange: (event) => patchCard("soundopen", { webUrl: event.target.value })
-							})),
-						appearanceView.notifyStyle === "system" ? null : react.createElement(OpenSessionChoice, {
-							t,
-							key: "openmode",
-							name: openModeName,
-							value: soundopenView.openSessionMode,
-							disabled: off,
-							standalone,
-							onChange: (v) => patchCard("soundopen", { openSessionMode: v })
-						})
-					]),
-					react.createElement(PluginCard, {
-						t,
 						key: "wake",
 						title: t("cardWake"),
 						description: t("cardWakeDesc"),
@@ -853,9 +811,19 @@ window.__ModuleLoader__.load({
 								className: "dshatt_input",
 								type: "number",
 								min: "0",
-								step: "100",
-								value: String(wakeView.cooldownMs ?? 1500),
-								onChange: (event) => patchCard("wake", { cooldownMs: event.target.value })
+								max: "86400",
+								step: "0.1",
+								value: String(Math.max(0, Number(wakeView.cooldownMs ?? 1500) / 1000)),
+								onChange: (event) => {
+									const raw = event.target.value;
+									if (raw === "") {
+										patchCard("wake", { cooldownMs: "" });
+										return;
+									}
+									const sec = Number(raw);
+									if (!Number.isFinite(sec)) return;
+									patchCard("wake", { cooldownMs: Math.round(Math.max(0, Math.min(86400, sec)) * 1000) });
+								}
 							}))
 					])
 				]),
@@ -886,15 +854,15 @@ window.__ModuleLoader__.load({
 					react.createElement("div", { key: "header", style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } }, [
 						react.createElement("div", { key: "kicker", style: { fontSize: 11, textTransform: "uppercase", color: previewDark ? "#2dd4bf" : "#0f766e", fontWeight: 650 } }, "dsh · 预览"),
 						react.createElement("div", { key: "headerActions", style: { display: "flex", alignItems: "center", gap: 6 } }, [
-							react.createElement("span", { key: "return", style: { borderRadius: 8, padding: "4px 10px", background: previewDark ? "rgba(59,130,246,.9)" : "#2563eb", color: "#fff", fontWeight: 600, fontSize: 12 } }, "回到会话"),
-							react.createElement("span", { key: "close", style: { width: 24, height: 24, borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", color: previewDark ? "#9caead" : "#5a6c68", fontSize: 14 } }, "×")
+							react.createElement("button", { type: "button", className: "dshatt_preview_btn", "aria-label": "回到会话（预览）", key: "return", style: { borderRadius: 8, padding: "4px 10px", background: previewDark ? "rgba(59,130,246,.9)" : "#2563eb", color: "#fff", fontWeight: 600, fontSize: 12 } }, "回到会话"),
+							react.createElement("button", { type: "button", className: "dshatt_preview_btn", "aria-label": "关闭（预览）", key: "close", style: { width: 24, height: 24, padding: 0, borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", color: previewDark ? "#9caead" : "#5a6c68", fontSize: 14 } }, "×")
 						])
 					]),
 					react.createElement("div", { key: "title", style: { fontSize: 15, fontWeight: 600, marginBottom: 6 } }, "会话已结束"),
 					react.createElement("div", { key: "desc", style: { fontSize: 12, opacity: .8, marginBottom: 12 } }, "写下一步任务，直接发给这条会话。"),
 					react.createElement("div", { key: "input", style: { borderRadius: 10, border: "1px solid " + (previewDark ? "rgba(64, 84, 80, .8)" : "rgba(176, 196, 190, .8)"), background: previewDark ? "rgba(36, 44, 46, .65)" : "rgba(236, 242, 240, .65)", padding: "8px 10px", marginBottom: 12, color: previewDark ? "#ecf2f0" : "#1c2422" } }, "下一步…"),
 					react.createElement("div", { key: "actions", style: { display: "flex", justifyContent: "flex-start", gap: 8 } }, [
-						react.createElement("span", { key: "send", style: { borderRadius: 10, padding: "6px 14px", background: previewDark ? "#2dd4bf" : "#0f766e", color: previewDark ? "#08201c" : "#fff", fontWeight: 600 } }, "发送")
+						react.createElement("button", { type: "button", className: "dshatt_preview_btn", "aria-label": "发送（预览）", key: "send", style: { borderRadius: 10, padding: "6px 14px", background: previewDark ? "#2dd4bf" : "#0f766e", color: previewDark ? "#08201c" : "#fff", fontWeight: 600 } }, "发送")
 					])
 				]) : null
 			]);
@@ -979,6 +947,10 @@ window.__ModuleLoader__.load({
 
 			const maybeReload = (reason) => {
 				if (disposed) return;
+				if (hiddenReloadMs <= 0) {
+					console.info("[dsh-attention] skip reload, wake reload is disabled:", reason);
+					return;
+				}
 				if (typingRecently(lastInputAt, Date.now())) {
 					console.info("[dsh-attention] skip reload, user is typing:", reason);
 					return;

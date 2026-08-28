@@ -18,7 +18,15 @@ import {
   soundOf,
   xmlEscape,
 } from '../src/util.js'
-import { normalizeConfig, publicConfig } from '../src/index.js'
+import {
+  createSessionKindTracker,
+  normalizeConfig,
+  publicConfig,
+  sessionKindOf,
+  sessionKindOfHostFrame,
+  shouldNotifySession,
+  webServerUrl,
+} from '../src/index.js'
 import { protocolUri, parseProtocolUri } from '../src/protocol.js'
 import { pickUiFields, sanitizeUiPatch } from '../src/persist.js'
 
@@ -62,6 +70,9 @@ test('protocolUri is path-based so cmd cannot split on &', () => {
   assert.equal(uri.includes('&'), false)
   assert.equal(uri.includes('http'), false)
   assert.deepEqual(parseProtocolUri(uri), { t: 'abc', a: 'allow' })
+  const instanceUri = protocolUri('abc', 'open', 43123)
+  assert.equal(instanceUri, 'dsh-attention://do/abc/open/43123')
+  assert.deepEqual(parseProtocolUri(instanceUri), { t: 'abc', a: 'open', p: '43123' })
   assert.equal(parseProtocolUri('dsh-attention://act?t=abc&a=opt0').a, 'opt0')
 })
 
@@ -155,17 +166,73 @@ test('normalizeConfig keeps enabled false', () => {
 })
 
 test('normalizeConfig fills defaults', () => {
-  const cfg = normalizeConfig({ sound: false, webUrl: 'http://127.0.0.1:3080/' })
+  const cfg = normalizeConfig({ sound: false })
   assert.equal(cfg.enabled, true)
-  assert.equal(cfg.webUrl, 'http://127.0.0.1:3080')
   assert.equal(cfg.sound, '')
   assert.equal(cfg.hiddenReloadMs, 8000)
   assert.equal(cfg.focusAfterReply, false)
   assert.equal(cfg.notifyIdle, true)
+  assert.equal(cfg.notifySubagentIdle, false)
   assert.equal(cfg.notifyStyle, 'custom')
   assert.equal(cfg.openSessionMode, 'reuse')
   assert.equal(cfg.notifyTimeoutSec, 30)
   assert.equal(cfg.cardOpacity, 0.78)
+})
+
+test('webServerUrl follows the current dsh instance port', () => {
+  assert.equal(webServerUrl({ port: 43123 }), 'http://127.0.0.1:43123')
+  assert.equal(webServerUrl({ port: '43124' }), 'http://127.0.0.1:43124')
+  assert.equal(webServerUrl({ port: 0 }), 'http://127.0.0.1:3080')
+  assert.equal(webServerUrl({ port: 70000 }), 'http://127.0.0.1:3080')
+})
+
+test('legacy rootsOnly does not enable subagent idle notifications', () => {
+  assert.equal(normalizeConfig({ rootsOnly: true }).notifySubagentIdle, false)
+  assert.equal(normalizeConfig({ rootsOnly: false }).notifySubagentIdle, false)
+})
+
+test('session kind uses durable subagent lineage', () => {
+  assert.equal(sessionKindOf(undefined), 'unknown')
+  assert.equal(sessionKindOf({ header: { origin: 'subagent', delegationDepth: 1 } }), 'subagent')
+  assert.equal(sessionKindOf({ header: { delegationDepth: 2 } }), 'subagent')
+  assert.equal(sessionKindOf({ header: { delegationDepth: 0 } }), 'primary')
+  assert.equal(sessionKindOfHostFrame({
+    type: 'host/session-added',
+    sessionId: 'child',
+    parentSessionId: 'parent',
+    origin: 'subagent',
+  }), 'subagent')
+  assert.equal(sessionKindOfHostFrame({ type: 'host/session-status', sessionId: 'child', running: false }), 'unknown')
+})
+
+test('session kind cache survives subagent disposal before the stopped frame', () => {
+  let live = { id: 'child', header: { origin: 'subagent', delegationDepth: 1 } }
+  const tracker = createSessionKindTracker(() => live)
+  assert.equal(tracker.get('child'), 'subagent')
+  live = undefined
+  assert.equal(tracker.get('child'), 'subagent')
+
+  const fromHost = createSessionKindTracker(() => undefined)
+  fromHost.rememberHostFrame({ type: 'host/session-added', sessionId: 'child-2', origin: 'subagent' })
+  assert.equal(fromHost.get('child-2'), 'subagent')
+})
+
+test('subagents can only emit the independently controlled idle notification', () => {
+  const defaults = normalizeConfig({})
+  assert.equal(shouldNotifySession(defaults, 'primary', 'approval'), true)
+  assert.equal(shouldNotifySession(defaults, 'primary', 'question'), true)
+  assert.equal(shouldNotifySession(defaults, 'primary', 'idle'), true)
+  assert.equal(shouldNotifySession(defaults, 'subagent', 'approval'), false)
+  assert.equal(shouldNotifySession(defaults, 'subagent', 'question'), false)
+  assert.equal(shouldNotifySession(defaults, 'subagent', 'idle'), false)
+  assert.equal(shouldNotifySession(normalizeConfig({ notifySubagentIdle: true }), 'subagent', 'idle'), true)
+  assert.equal(shouldNotifySession(defaults, 'unknown', 'idle'), false)
+})
+
+test('normalizeConfig preserves zero wake reload and cooldown values', () => {
+  const cfg = normalizeConfig({ hiddenReloadMs: 0, cooldownMs: 0 })
+  assert.equal(cfg.hiddenReloadMs, 0)
+  assert.equal(cfg.cooldownMs, 0)
 })
 
 test('normalizeConfig parses notifyTimeoutSec', () => {
@@ -237,8 +304,13 @@ test('inbox parser keeps custom answers', async () => {
 test('sanitizeUiPatch drops empty and unknown fields', () => {
   assert.deepEqual(sanitizeUiPatch({}), {})
   assert.deepEqual(sanitizeUiPatch({ notifyStyle: 'system', ignored: 1 }), { notifyStyle: 'system' })
+  assert.deepEqual(sanitizeUiPatch({ webUrl: 'http://127.0.0.1:9999' }), {})
   assert.deepEqual(sanitizeUiPatch({ openSessionMode: 'new' }), { openSessionMode: 'new' })
   assert.deepEqual(sanitizeUiPatch({ cardOpacity: 0.5 }), { cardOpacity: 0.5 })
+  assert.deepEqual(sanitizeUiPatch({ rootsOnly: true }), {})
+  assert.deepEqual(sanitizeUiPatch({ notifySubagents: false, notifySubagentQuestion: true, notifySubagentIdle: true }), {
+    notifySubagentIdle: true,
+  })
   assert.deepEqual(sanitizeUiPatch({ soundEnabled: false, enabled: undefined }), { soundEnabled: false })
 })
 
@@ -248,6 +320,7 @@ test('publicConfig exposes UI fields and soundEnabled', () => {
   assert.equal(pub.ok, true)
   assert.equal(pub.soundEnabled, false)
   assert.equal(pub.focusAfterReply, true)
+  assert.equal(Object.hasOwn(pub, 'webUrl'), false)
   assert.deepEqual(Object.keys(pickUiFields(cfg)).sort(), [
     'cardOpacity',
     'cooldownMs',
@@ -258,10 +331,9 @@ test('publicConfig exposes UI fields and soundEnabled', () => {
     'notifyIdle',
     'notifyQuestion',
     'notifyStyle',
+    'notifySubagentIdle',
     'notifyTimeoutSec',
     'openSessionMode',
-    'rootsOnly',
     'sound',
-    'webUrl',
   ])
 })

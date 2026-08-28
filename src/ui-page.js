@@ -254,7 +254,15 @@ export function renderReplyHtml() {
       try { window.alert(message); } catch {}
     }
 
-    function renderIdle() {
+    function renderIdle(data) {
+      if (data && data.isSubagent === true) {
+        root.replaceChildren(
+          el('div', { class: 'kicker', text: '子代理提醒' }),
+          el('h1', { text: '子代理任务已结束' }),
+          el('p', { class: 'sub', text: '子代理任务已完成，请回到 dsh 会话查看结果。' })
+        );
+        return;
+      }
       const area = el('textarea', { id: 'task', placeholder: '下一步想让它做什么…' });
       const err = el('p', { class: 'err' });
       const send = el('button', { class: 'primary', type: 'button', text: '发送' });
@@ -272,7 +280,7 @@ export function renderReplyHtml() {
         }
       });
       root.replaceChildren(
-        el('div', { class: 'kicker', text: '提醒' }),
+        el('div', { class: 'kicker', text: data && data.isSubagent ? '子代理提醒' : '提醒' }),
         el('h1', { text: '会话已结束' }),
         el('p', { class: 'sub', text: '写下一步任务，直接发给这条会话。' }),
         area,
@@ -383,7 +391,7 @@ export function renderReplyHtml() {
           document.documentElement.style.setProperty('--card-alpha', String(data.cardOpacity));
         }
         if (!data || !data.ok) return renderGone('这条通知已经失效，请回到原来的 dsh 窗口。');
-        if (data.kind === 'idle') renderIdle();
+        if (data.kind === 'idle') renderIdle(data);
         else if (data.kind === 'question') renderQuestion(data);
         else if (data.kind === 'approval') renderApproval();
         else return renderGone('没有可处理的内容。');

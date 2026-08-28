@@ -14,8 +14,11 @@ import { fileURLToPath } from 'node:url'
 export const PROTOCOL = 'dsh-attention'
 export const HANDLER_CONFIG_PATH = () => join(homedir(), '.dsh', 'dsh-attention-handler.json')
 
-export function protocolUri(token, action) {
-  return `${PROTOCOL}://do/${encodeURIComponent(token)}/${encodeURIComponent(action)}`
+export function protocolUri(token, action, port) {
+  const endpoint = Number.isSafeInteger(Number(port)) && Number(port) > 0 && Number(port) <= 65535
+    ? `/${Number(port)}`
+    : ''
+  return `${PROTOCOL}://do/${encodeURIComponent(token)}/${encodeURIComponent(action)}${endpoint}`
 }
 
 /** 只前置已有 dsh 窗口，不走浏览器、不新开标签。 */
@@ -40,6 +43,7 @@ export function parseProtocolUri(raw) {
   if (parts.length >= 3 && (parts[0] === 'do' || parts[0] === 'act')) {
     out.t = decodeURIComponent(parts[1])
     out.a = decodeURIComponent(parts[2])
+    if (/^\d+$/.test(parts[3] ?? '')) out.p = parts[3]
   }
   for (const pair of query.split('&')) {
     if (!pair) continue

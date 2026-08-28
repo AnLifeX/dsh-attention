@@ -5,14 +5,13 @@
       name: dsh-attention
       config:
         enabled: true
-        rootsOnly: true
         notifyApproval: true
         notifyQuestion: true
         notifyIdle: true
+        notifySubagentIdle: false
         notifyStyle: custom
         notifyTimeoutSec: 30
         cardOpacity: 0.78
         openSessionMode: reuse
-        webUrl: http://127.0.0.1:3080
         hiddenReloadMs: 8000
         cooldownMs: 1500

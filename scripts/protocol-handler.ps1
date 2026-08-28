@@ -34,9 +34,27 @@ function Get-HandlerConfig {
   return $null
 }
 
-function Get-WebUrl {
+function Get-WebUrl([string]$Token, [string]$Port) {
+  if ($Port -match '^\d{1,5}$') {
+    $portNumber = [int]$Port
+    if ($portNumber -ge 1 -and $portNumber -le 65535) {
+      return 'http://127.0.0.1:' + $portNumber
+    }
+  }
+  if ($Token -match '^[A-Za-z0-9_-]+$') {
+    $pendingPath = Join-Path $env:USERPROFILE ('.dsh\dsh-attention-work\pending-' + $Token + '.json')
+    if (Test-Path -LiteralPath $pendingPath) {
+      try {
+        $pending = Get-Content -LiteralPath $pendingPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $pendingUrl = ([string]$pending.webUrl).TrimEnd('/')
+        if ($pendingUrl -match '^http://127\.0\.0\.1:\d{1,5}$') { return $pendingUrl }
+      } catch {}
+    }
+  }
   $json = Get-HandlerConfig
-  if ($json -and $json.webUrl) { return ([string]$json.webUrl).TrimEnd('/') }
+  if ($json -and ([string]$json.webUrl).TrimEnd('/') -match '^http://127\.0\.0\.1:\d{1,5}$') {
+    return ([string]$json.webUrl).TrimEnd('/')
+  }
   return 'http://127.0.0.1:3080'
 }
 
@@ -60,6 +78,9 @@ function Get-QueryMap([string]$Raw) {
   if ($parts.Count -ge 3 -and ($parts[0] -eq 'do' -or $parts[0] -eq 'act')) {
     $map['t'] = [Uri]::UnescapeDataString($parts[1])
     $map['a'] = [Uri]::UnescapeDataString($parts[2])
+    if ($parts.Count -ge 4 -and $parts[3] -match '^\d{1,5}$') {
+      $map['p'] = [Uri]::UnescapeDataString($parts[3])
+    }
   }
   foreach ($pair in $query.Split('&')) {
     if (-not $pair) { continue }
@@ -210,7 +231,7 @@ function Invoke-Act([string]$WebUrl, $Map) {
 
 if ($FocusExisting) {
   $url = $WebUrl
-  if (-not $url) { $url = Get-WebUrl }
+  if (-not $url) { $url = Get-WebUrl '' '' }
   $openUrl = $url
   if ($SessionId) {
     $openUrl = $url.TrimEnd('/') + '/#dsh-attention=' + [Uri]::EscapeDataString([string]$SessionId)
@@ -220,10 +241,10 @@ if ($FocusExisting) {
   exit 0
 }
 
-$webUrl = Get-WebUrl
 $map = Get-QueryMap $Uri
 $action = [string]$map['a']
 $token = [string]$map['t']
+$webUrl = Get-WebUrl $token ([string]$map['p'])
 Write-ActLog ("uri=$Uri t=$token a=$action")
 
 if ($action -eq 'compose') {

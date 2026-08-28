@@ -10,17 +10,16 @@ export const UI_CONFIG_PATH = () => join(homedir(), '.dsh', 'dsh-attention-ui.js
 
 export const UI_KEYS = [
   'enabled',
-  'rootsOnly',
   'notifyApproval',
   'notifyQuestion',
   'notifyIdle',
+  'notifySubagentIdle',
   'notifyStyle',
   'notifyTimeoutSec',
   'cardOpacity',
   'openSessionMode',
   'focusAfterReply',
   'sound',
-  'webUrl',
   'hiddenReloadMs',
   'cooldownMs',
 ]
@@ -40,7 +39,11 @@ export function readUiOverlay() {
 }
 
 export function writeUiOverlay(partial) {
-  const next = { ...readUiOverlay() }
+  const next = {}
+  const previous = readUiOverlay()
+  for (const key of UI_KEYS) {
+    if (Object.hasOwn(previous, key)) next[key] = previous[key]
+  }
   if (partial && typeof partial === 'object') {
     for (const key of UI_KEYS) {
       if (Object.hasOwn(partial, key)) next[key] = partial[key]

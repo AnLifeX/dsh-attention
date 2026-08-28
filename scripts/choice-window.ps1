@@ -118,6 +118,7 @@ $labels = $data.labels
 if (-not $labels) { $labels = [pscustomobject]@{} }
 $kind = [string]$data.kind
 $session = [string]$data.session
+$isSubagent = ($data.isSubagent -eq $true)
 
 function LabelOf([string]$Name, [string]$Fallback) {
   $value = $null
@@ -211,7 +212,14 @@ function Get-DshNeedles {
       if ($text) { [void]$needles.Add($text) }
     }
   } catch {}
-  foreach ($n in @('DeepSeek Harness', 'DeepSeek', '127.0.0.1:3080', 'localhost:3080')) {
+  try {
+    $instanceUri = [Uri]([string]$data.webUrl)
+    if ($instanceUri.Port -gt 0) {
+      [void]$needles.Add($instanceUri.Authority)
+      [void]$needles.Add(('localhost:' + $instanceUri.Port))
+    }
+  } catch {}
+  foreach ($n in @('DeepSeek Harness', 'DeepSeek')) {
     [void]$needles.Add($n)
   }
   $unique = New-Object System.Collections.ArrayList
@@ -237,7 +245,6 @@ function Score-DshTitle([string]$Title, $Needles) {
   }
   if ($Title -match 'DeepSeek\s*Harness') { $score += 80 }
   elseif ($Title -match 'DeepSeek|Harness|\bdsh\b') { $score += 25 }
-  if ($Title -match '127\.0\.0\.1:3080|localhost:3080') { $score += 40 }
   if ($Title -notmatch 'Microsoft Edge\s*$') { $score += 15 }
   return $score
 }
@@ -406,6 +413,61 @@ $script:closeTpl = [Windows.Markup.XamlReader]::Parse(@'
 </ControlTemplate>
 '@)
 
+function Start-ButtonMotion {
+  param(
+    $Button,
+    [double]$Scale,
+    [double]$Opacity,
+    [int]$DurationMs
+  )
+  if (-not $Button -or -not $Button.RenderTransform) { return }
+  $animate = $true
+  try { $animate = [bool][System.Windows.SystemParameters]::ClientAreaAnimation } catch {}
+  $transform = $Button.RenderTransform
+  if (-not $animate) {
+    $transform.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleXProperty, $null)
+    $transform.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleYProperty, $null)
+    $Button.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $null)
+    $transform.ScaleX = $Scale
+    $transform.ScaleY = $Scale
+    $Button.Opacity = $Opacity
+    return
+  }
+
+  $duration = New-Object System.Windows.Duration ([TimeSpan]::FromMilliseconds($DurationMs))
+  $ease = New-Object System.Windows.Media.Animation.CubicEase
+  $ease.EasingMode = [System.Windows.Media.Animation.EasingMode]::EaseOut
+  foreach ($axis in @('ScaleX', 'ScaleY')) {
+    $animation = New-Object System.Windows.Media.Animation.DoubleAnimation
+    if ($axis -eq 'ScaleX') { $animation.From = [double]$transform.ScaleX }
+    else { $animation.From = [double]$transform.ScaleY }
+    $animation.To = $Scale
+    $animation.Duration = $duration
+    $animation.EasingFunction = $ease
+    if ($axis -eq 'ScaleX') {
+      $transform.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleXProperty, $animation)
+    } else {
+      $transform.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleYProperty, $animation)
+    }
+  }
+
+  $fade = New-Object System.Windows.Media.Animation.DoubleAnimation
+  $fade.From = [double]$Button.Opacity
+  $fade.To = $Opacity
+  $fade.Duration = $duration
+  $fade.EasingFunction = $ease
+  $Button.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $fade)
+}
+
+function Add-ButtonMotion($Button) {
+  $Button.RenderTransformOrigin = New-Object System.Windows.Point 0.5, 0.5
+  $Button.RenderTransform = New-Object System.Windows.Media.ScaleTransform 1, 1
+  $Button.Add_MouseEnter({ Start-ButtonMotion -Button $this -Scale 1 -Opacity 0.92 -DurationMs 100 })
+  $Button.Add_MouseLeave({ Start-ButtonMotion -Button $this -Scale 1 -Opacity 1 -DurationMs 120 })
+  $Button.Add_PreviewMouseLeftButtonDown({ Start-ButtonMotion -Button $this -Scale 0.96 -Opacity 0.82 -DurationMs 60 })
+  $Button.Add_PreviewMouseLeftButtonUp({ Start-ButtonMotion -Button $this -Scale 1 -Opacity 0.92 -DurationMs 120 })
+}
+
 function New-UiButton {
   param(
     [string]$Caption,
@@ -429,6 +491,7 @@ function New-UiButton {
   $b.Padding = New-Object System.Windows.Thickness 12, 0, 12, 0
   if ($Left) { $b.HorizontalContentAlignment = 'Left' }
   else { $b.HorizontalContentAlignment = 'Center' }
+  Add-ButtonMotion $b
   return $b
 }
 
@@ -495,17 +558,32 @@ $window.Topmost = $true
 $window.ResizeMode = 'NoResize'
 $window.Width = $cardDip + 36
 $window.SizeToContent = 'Height'
+$window.Opacity = 0
 $window.FontFamily = 'Segoe UI, Microsoft YaHei UI, Microsoft YaHei, PingFang SC'
 $script:window = $window
 
 $outer = New-Object System.Windows.Controls.Grid
 $outer.Margin = New-Object System.Windows.Thickness 18
+$entryScale = New-Object System.Windows.Media.ScaleTransform 0.97, 0.97
+$entryTranslate = New-Object System.Windows.Media.TranslateTransform 0, 28
+$entryTransforms = New-Object System.Windows.Media.TransformGroup
+[void]$entryTransforms.Children.Add($entryScale)
+[void]$entryTransforms.Children.Add($entryTranslate)
+$outer.RenderTransform = $entryTransforms
+$outer.RenderTransformOrigin = New-Object System.Windows.Point 0.5, 1
+$script:entryScale = $entryScale
+$script:entryTranslate = $entryTranslate
 
 $card = New-Object System.Windows.Controls.Border
 $card.CornerRadius = New-Object System.Windows.CornerRadius 18
 $card.Background = $brGlass
-$card.BorderBrush = $brGlassLine
-$card.BorderThickness = 1
+if ($isSubagent) {
+  $card.BorderBrush = $brAccent
+  $card.BorderThickness = 1.5
+} else {
+  $card.BorderBrush = $brGlassLine
+  $card.BorderThickness = 1
+}
 $shadow = New-Object System.Windows.Media.Effects.DropShadowEffect
 $shadow.BlurRadius = 28
 $shadow.ShadowDepth = 0
@@ -555,6 +633,7 @@ $close.Cursor = [System.Windows.Input.Cursors]::Hand
 $close.Template = $script:closeTpl
 $close.VerticalAlignment = 'Center'
 $close.ToolTip = LabelOf 'close' 'Close'
+Add-ButtonMotion $close
 [System.Windows.Controls.DockPanel]::SetDock($close, 'Right')
 $close.Add_Click({ $script:window.Close() })
 [void]$header.Children.Add($close)
@@ -567,16 +646,36 @@ $openHeader.Add_Click({ Open-ExistingSession })
 [System.Windows.Controls.DockPanel]::SetDock($openHeader, 'Right')
 [void]$header.Children.Add($openHeader)
 
-$kickerText = LabelOf 'kicker' 'dsh'
-if ($session) { $kickerText = $kickerText + '  ' + $session }
-$kicker = New-Object System.Windows.Controls.TextBlock
-$kicker.Text = $kickerText
-$kicker.Foreground = $brAccent
-$kicker.FontSize = 12
-$kicker.VerticalAlignment = 'Center'
-$kicker.Cursor = [System.Windows.Input.Cursors]::Hand
-$kicker.Add_MouseLeftButtonUp({ Open-ExistingSession })
-[void]$header.Children.Add($kicker)
+$identity = New-Object System.Windows.Controls.StackPanel
+$identity.Orientation = 'Horizontal'
+$identity.VerticalAlignment = 'Center'
+$identity.Cursor = [System.Windows.Input.Cursors]::Hand
+$identityBadge = New-Object System.Windows.Controls.Border
+$identityBadge.CornerRadius = New-Object System.Windows.CornerRadius 8
+$identityBadge.Padding = New-Object System.Windows.Thickness 8, 3, 8, 3
+$identityBadge.Background = if ($isSubagent) { $brAccent } else { $brChip }
+$identityBadgeText = New-Object System.Windows.Controls.TextBlock
+$identityBadgeText.Text = if ($isSubagent) {
+  LabelOf 'subagentIdentity' (U 0x5B50 0x4EE3 0x7406)
+} else {
+  LabelOf 'primaryIdentity' (U 0x4E3B 0x4F1A 0x8BDD)
+}
+$identityBadgeText.Foreground = if ($isSubagent) { $brAccentFg } else { $brMuted }
+$identityBadgeText.FontSize = 11
+$identityBadgeText.FontWeight = 'SemiBold'
+$identityBadge.Child = $identityBadgeText
+[void]$identity.Children.Add($identityBadge)
+if ($session) {
+  $identitySession = New-Object System.Windows.Controls.TextBlock
+  $identitySession.Text = $session
+  $identitySession.Foreground = $brMuted
+  $identitySession.FontSize = 12
+  $identitySession.Margin = New-Object System.Windows.Thickness 8, 0, 0, 0
+  $identitySession.VerticalAlignment = 'Center'
+  [void]$identity.Children.Add($identitySession)
+}
+$identity.Add_MouseLeftButtonUp({ Open-ExistingSession })
+[void]$header.Children.Add($identity)
 [void]$body.Children.Add($header)
 
 $errTb = New-Object System.Windows.Controls.TextBlock
@@ -825,30 +924,40 @@ elseif ($kind -eq 'approval') {
 elseif ($kind -eq 'idle') {
   $title = [string]$data.heading
   Add-Title $title
-  $ph = LabelOf 'placeholder' (U 0x4E0B 0x4E00 0x6B65)
-  $box = New-InputBox $ph
-  $script:idleBox = $box.Box
-  [void]$body.Children.Add($box.Wrap)
-  [void]$body.Children.Add($errTb)
-  $send = New-UiButton -Caption (LabelOf 'send' 'Send') -Bg $brAccent -Fg $brAccentFg -Width 72
-  $send.Add_Click({
-    try {
-      if ($script:busy) { return }
-      $textValue = ([string]$script:idleBox.Text).Trim()
-      if (-not $textValue) {
-        $script:errTb.Text = LabelOf 'empty' 'empty'
-        return
+  if ($isSubagent) {
+    $note = New-Object System.Windows.Controls.TextBlock
+    $note.Text = LabelOf 'subagentIdleNote' (U 0x5B50 0x4EE3 0x7406 0x4EFB 0x52A1 0x5DF2 0x5B8C 0x6210)
+    $note.Foreground = $brMuted
+    $note.FontSize = 12
+    $note.TextWrapping = 'Wrap'
+    $note.Margin = New-Object System.Windows.Thickness 0, 0, 0, 4
+    [void]$body.Children.Add($note)
+  } else {
+    $ph = LabelOf 'placeholder' (U 0x4E0B 0x4E00 0x6B65)
+    $box = New-InputBox $ph
+    $script:idleBox = $box.Box
+    [void]$body.Children.Add($box.Wrap)
+    [void]$body.Children.Add($errTb)
+    $send = New-UiButton -Caption (LabelOf 'send' 'Send') -Bg $brAccent -Fg $brAccentFg -Width 72
+    $send.Add_Click({
+      try {
+        if ($script:busy) { return }
+        $textValue = ([string]$script:idleBox.Text).Trim()
+        if (-not $textValue) {
+          $script:errTb.Text = LabelOf 'empty' 'empty'
+          return
+        }
+        $script:busy = $true
+        Write-Inbox @{ t = $Token; a = 'send'; text = $textValue }
+        Close-Soon
+      } catch {
+        Write-ActLog ('click-error=' + $_.Exception.Message)
+        $script:errTb.Text = [string]$_.Exception.Message
+        $script:busy = $false
       }
-      $script:busy = $true
-      Write-Inbox @{ t = $Token; a = 'send'; text = $textValue }
-      Close-Soon
-    } catch {
-      Write-ActLog ('click-error=' + $_.Exception.Message)
-      $script:errTb.Text = [string]$_.Exception.Message
-      $script:busy = $false
-    }
-  })
-  Add-PrimaryAction $send
+    })
+    Add-PrimaryAction $send
+  }
 }
 else {
   Write-ActLog ('unknown-kind=' + $kind)
@@ -895,6 +1004,50 @@ function Place-BottomRight {
   $script:window.Top = [Math]::Max($wa.Top + 16, $wa.Bottom - $h - 10)
 }
 
+function Start-EntryAnimation {
+  $animate = $true
+  try { $animate = [bool][System.Windows.SystemParameters]::ClientAreaAnimation } catch {}
+  if (-not $animate) {
+    $script:window.Opacity = 1
+    $script:entryScale.ScaleX = 1
+    $script:entryScale.ScaleY = 1
+    $script:entryTranslate.Y = 0
+    Write-ActLog 'entry-animation=disabled'
+    return
+  }
+  $duration = New-Object System.Windows.Duration ([TimeSpan]::FromMilliseconds(280))
+  $ease = New-Object System.Windows.Media.Animation.CubicEase
+  $ease.EasingMode = [System.Windows.Media.Animation.EasingMode]::EaseOut
+
+  $fade = New-Object System.Windows.Media.Animation.DoubleAnimation
+  $fade.From = 0
+  $fade.To = 1
+  $fade.Duration = $duration
+  $fade.EasingFunction = $ease
+  $script:window.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $fade)
+
+  $rise = New-Object System.Windows.Media.Animation.DoubleAnimation
+  $rise.From = 28
+  $rise.To = 0
+  $rise.Duration = $duration
+  $rise.EasingFunction = $ease
+  $script:entryTranslate.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, $rise)
+
+  foreach ($axis in @('ScaleX', 'ScaleY')) {
+    $grow = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $grow.From = 0.97
+    $grow.To = 1
+    $grow.Duration = $duration
+    $grow.EasingFunction = $ease
+    if ($axis -eq 'ScaleX') {
+      $script:entryScale.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleXProperty, $grow)
+    } else {
+      $script:entryScale.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleYProperty, $grow)
+    }
+  }
+  Write-ActLog 'entry-animation=up-28px-280ms'
+}
+
 $watch = New-Object System.Windows.Threading.DispatcherTimer
 $watch.Interval = [TimeSpan]::FromMilliseconds(800)
 $watch.Add_Tick({
@@ -923,6 +1076,7 @@ $life.Add_Tick({
 
 $window.Add_ContentRendered({
   Place-BottomRight
+  Start-EntryAnimation
   if ($script:timeoutSec -gt 0) { $life.Start() }
   if ($script:idleBox) { [void]$script:idleBox.Focus() }
   if ($data.playSound -ne $false) {

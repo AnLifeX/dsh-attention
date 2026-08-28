@@ -35,24 +35,22 @@ import {
   buildQuestionAnswers,
   sessionFocusUrl,
   shortSessionId,
-  trimSlash,
 } from './util.js'
 
 export const name = 'dsh-attention'
 
 const DEFAULT_CONFIG = {
   enabled: true,
-  rootsOnly: true,
   notifyApproval: true,
   notifyQuestion: true,
   notifyIdle: true,
+  notifySubagentIdle: false,
   notifyStyle: 'custom',
   notifyTimeoutSec: 30,
   cardOpacity: 0.78,
   openSessionMode: 'reuse',
   focusAfterReply: false,
   sound: DEFAULT_SOUND,
-  webUrl: DEFAULT_WEB_URL,
   aumid: DEFAULT_AUMID,
   powershellPath: undefined,
   cooldownMs: 1500,
@@ -65,10 +63,10 @@ export function normalizeConfig(config) {
   const cfg = { ...DEFAULT_CONFIG }
   if (config && typeof config === 'object') Object.assign(cfg, config)
   cfg.enabled = asBool(cfg.enabled, true)
-  cfg.rootsOnly = asBool(cfg.rootsOnly, true)
   cfg.notifyApproval = asBool(cfg.notifyApproval, true)
   cfg.notifyQuestion = asBool(cfg.notifyQuestion, true)
   cfg.notifyIdle = asBool(cfg.notifyIdle, true)
+  cfg.notifySubagentIdle = asBool(cfg.notifySubagentIdle, false)
   cfg.notifyStyle = notifyStyleOf(cfg.notifyStyle)
   cfg.notifyTimeoutSec = notifyTimeoutSecOf(cfg.notifyTimeoutSec)
   cfg.cardOpacity = Number.isFinite(Number(cfg.cardOpacity))
@@ -79,7 +77,6 @@ export function normalizeConfig(config) {
   cfg.cooldownMs = Math.max(0, Math.floor(Number(cfg.cooldownMs) || 0))
   cfg.hiddenReloadMs = Math.max(0, Math.floor(Number(cfg.hiddenReloadMs) || 0))
   cfg.presenceStaleMs = Math.max(1000, Math.floor(Number(cfg.presenceStaleMs) || DEFAULT_CONFIG.presenceStaleMs))
-  cfg.webUrl = trimSlash(cfg.webUrl || DEFAULT_WEB_URL)
   cfg.sound = soundOf(cfg.sound, DEFAULT_CONFIG.sound)
   return cfg
 }
@@ -183,9 +180,70 @@ function send(res, status, headers, body) {
   res.end(body)
 }
 
-function isRootSession(session) {
-  const depth = session?.header?.delegationDepth
-  return depth == null || depth === 0
+export function sessionKindOf(session) {
+  const header = session?.header
+  if (!header || typeof header !== 'object') return 'unknown'
+  if (header.origin === 'subagent' || Number(header.delegationDepth) > 0) return 'subagent'
+  return 'primary'
+}
+
+export function webServerUrl(webServer) {
+  const port = Number(webServer?.port)
+  return Number.isSafeInteger(port) && port > 0 && port <= 65535
+    ? `http://127.0.0.1:${port}`
+    : DEFAULT_WEB_URL
+}
+
+export function sessionKindOfHostFrame(payload) {
+  if (payload?.type !== 'host/session-added') return 'unknown'
+  return payload.origin === 'subagent' ? 'subagent' : 'primary'
+}
+
+export function shouldNotifySession(cfg, sessionKind, eventKind) {
+  if (sessionKind === 'subagent') {
+    if (eventKind === 'idle') return cfg.notifySubagentIdle
+    return false
+  }
+  if (sessionKind !== 'primary') return false
+  if (eventKind === 'approval') return cfg.notifyApproval
+  if (eventKind === 'question') return cfg.notifyQuestion
+  if (eventKind === 'idle') return cfg.notifyIdle
+  return false
+}
+
+/**
+ * host/session-status 不携带会话来源，而且它可能晚于 session/disposed 被消费。
+ * 因此来源必须在 session-added / 会话仍在线时记住，不能在结束时临时反查。
+ */
+export function createSessionKindTracker(sessionLookup = () => undefined) {
+  const byId = new Map()
+
+  const remember = (sessionId, kind) => {
+    if (sessionId && kind !== 'unknown') byId.set(sessionId, kind)
+    return kind
+  }
+
+  return {
+    remember,
+    rememberSession(session) {
+      return remember(session?.id, sessionKindOf(session))
+    },
+    rememberHostFrame(payload) {
+      return remember(payload?.sessionId, sessionKindOfHostFrame(payload))
+    },
+    get(sessionId) {
+      const cached = byId.get(sessionId)
+      if (cached) return cached
+      try {
+        return remember(sessionId, sessionKindOf(sessionLookup(sessionId)))
+      } catch {
+        return 'unknown'
+      }
+    },
+    clear() {
+      byId.clear()
+    },
+  }
 }
 
 function toastInputText(url, extra = {}) {
@@ -238,7 +296,8 @@ function resolveTitle(ctx, session) {
 
 export function apply(ctx, config = {}) {
   const cfg = normalizeConfig({ ...config, ...readUiOverlay() })
-  registerProtocol(cfg, ctx.logger)
+  let runtimeWebUrl = DEFAULT_WEB_URL
+  const runtimeConfig = () => ({ ...cfg, webUrl: runtimeWebUrl })
 
   /** token → 待处理项；rpcId → token，方便 resolved 时清掉。 */
   const byToken = new Map()
@@ -289,16 +348,20 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  const openUrl = (token) => protocolUri(token, 'open')
-  const httpOpenUrl = (token) => `${cfg.webUrl}/dsh-attention/act?t=${encodeURIComponent(token)}&a=open`
+  const runtimePort = () => {
+    try { return Number(new URL(runtimeWebUrl).port) || 0 } catch { return 0 }
+  }
+  const openUrl = (token) => protocolUri(token, 'open', runtimePort())
+  const httpOpenUrl = (token) => `${runtimeWebUrl}/dsh-attention/act?t=${encodeURIComponent(token)}&a=open`
 
   const toastChrome = () => ({
-    imageUrl: `${cfg.webUrl}/dsh-attention/logo.png`,
+    imageUrl: `${runtimeWebUrl}/dsh-attention/logo.png`,
     attribution: '提醒',
   })
 
-  const choiceLabels = () => ({
-    kicker: '提醒',
+  const choiceLabels = (isSubagent = false) => ({
+    primaryIdentity: '主会话',
+    subagentIdentity: '子代理',
     title: '提醒',
     submit: '提交',
     close: '关闭',
@@ -310,6 +373,7 @@ export function apply(ctx, config = {}) {
     customLabel: '其他',
     customPlaceholder: '输入你的答案',
     openSession: '回到会话',
+    subagentIdleNote: '子代理任务已完成，可回到会话查看结果。',
     empty: '先写一句再发送。',
     missing: '还有选项没选。',
     done: '已提交',
@@ -317,21 +381,24 @@ export function apply(ctx, config = {}) {
     focusMiss: '找不到已打开的 dsh 窗口。请先让浏览器停在 dsh 那个标签上。',
   })
 
-  const choicePending = (token, sessionId, extra = {}) => ({
-    token,
-    timeoutSec: cfg.notifyTimeoutSec,
-    cardOpacity: cfg.cardOpacity,
-    webUrl: cfg.webUrl,
-    openUrl: sessionFocusUrl(cfg.webUrl, sessionId),
-    openSessionMode: cfg.openSessionMode,
-    reuseSession: cfg.openSessionMode !== 'new',
-    playSound: Boolean(cfg.sound),
-    windowTitle: lastUiTitle,
-    appTitle: 'DeepSeek Harness',
-    labels: choiceLabels(),
-    theme: lastUiTheme,
-    ...extra,
-  })
+  const choicePending = (token, sessionId, extra = {}) => {
+    const isSubagent = extra.isSubagent === true
+    return {
+      token,
+      timeoutSec: cfg.notifyTimeoutSec,
+      cardOpacity: cfg.cardOpacity,
+      webUrl: runtimeWebUrl,
+      openUrl: sessionFocusUrl(runtimeWebUrl, sessionId),
+      openSessionMode: cfg.openSessionMode,
+      reuseSession: cfg.openSessionMode !== 'new',
+      playSound: Boolean(cfg.sound),
+      windowTitle: lastUiTitle,
+      appTitle: 'DeepSeek Harness',
+      labels: choiceLabels(isSubagent),
+      theme: lastUiTheme,
+      ...extra,
+    }
+  }
 
   const openChoiceWindow = (token) => {
     if (process.platform !== 'win32') return
@@ -376,12 +443,14 @@ export function apply(ctx, config = {}) {
       return undefined
     }
   }
+  const sessionKinds = createSessionKindTracker(sessionOf)
 
-  const allowSession = (sessionId) => {
-    if (!cfg.rootsOnly) return true
-    const session = sessionOf(sessionId)
-    if (!session) return true
-    return isRootSession(session)
+  try {
+    for (const session of ctx.sessions?.list?.() ?? []) {
+      sessionKinds.rememberSession(session)
+    }
+  } catch {
+    /* 实时 host/session-added 仍会补齐；未知会话按不通知处理。 */
   }
 
   const cooled = (key) => {
@@ -408,11 +477,12 @@ export function apply(ctx, config = {}) {
   const shouldFocusAfter = (action) => action === 'open'
 
   const showApprovalToast = (envelope) => {
-    if (!cfg.enabled || !cfg.notifyApproval || uiFocused()) return
+    if (!cfg.enabled || uiFocused()) return
     const rpcId = envelope.rpcId
     const payload = envelope.payload ?? {}
     if (!rpcId || toastedRpc.has(rpcId)) return
-    if (!allowSession(payload.sessionId)) return
+    const kind = sessionKinds.get(payload.sessionId)
+    if (!shouldNotifySession(cfg, kind, 'approval')) return
     if (cooled(`approval:${payload.sessionId}`)) return
 
     const token = mintToken()
@@ -437,7 +507,7 @@ export function apply(ctx, config = {}) {
     if (cfg.notifyStyle === 'system') {
       fireSystemToast(token, `${cfg.titlePrefix} · 需要审批`, [
         `会话 ${who}`,
-        why ? `${what} — ${why}` : what,
+        why ? `${what}：${why}` : what,
         '点击通知回到该会话，在页面里处理',
       ])
       return
@@ -446,17 +516,18 @@ export function apply(ctx, config = {}) {
       kind: 'approval',
       session: clip(who, 22),
       heading: '需要审批',
-      sub: why ? `${what} — ${why}` : what,
+      sub: why ? `${what}：${why}` : what,
     }))
     openChoiceWindow(token)
   }
 
   const showQuestionToast = (envelope) => {
-    if (!cfg.enabled || !cfg.notifyQuestion || uiFocused()) return
+    if (!cfg.enabled || uiFocused()) return
     const rpcId = envelope.rpcId
     const payload = envelope.payload ?? {}
     if (!rpcId || toastedRpc.has(rpcId)) return
-    if (!allowSession(payload.sessionId)) return
+    const kind = sessionKinds.get(payload.sessionId)
+    if (!shouldNotifySession(cfg, kind, 'question')) return
     if (cooled(`question:${payload.sessionId}`)) return
 
     const questions = Array.isArray(payload.questions) ? payload.questions : []
@@ -495,8 +566,10 @@ export function apply(ctx, config = {}) {
   }
 
   const showIdleToast = (sessionId) => {
-    if (!cfg.enabled || !cfg.notifyIdle || uiFocused()) return
-    if (!allowSession(sessionId)) return
+    if (!cfg.enabled || uiFocused()) return
+    const kind = sessionKinds.get(sessionId)
+    if (!shouldNotifySession(cfg, kind, 'idle')) return
+    const isSubagent = kind === 'subagent'
     if (cooled(`idle:${sessionId}`)) return
 
     forgetIdleFor(sessionId)
@@ -508,19 +581,21 @@ export function apply(ctx, config = {}) {
       kind: 'idle',
       token,
       sessionId,
+      isSubagent,
       createdAt: Date.now(),
     })
     if (cfg.notifyStyle === 'system') {
-      fireSystemToast(token, `${cfg.titlePrefix} · 会话已结束`, [
-        `会话 ${who}`,
-        '点击通知回到该会话，在页面里写下一步',
+      fireSystemToast(token, `${cfg.titlePrefix} · ${isSubagent ? '子代理任务已完成' : '主会话本轮已完成'}`, [
+        `${isSubagent ? '子代理' : '会话'} ${who}`,
+        isSubagent ? '点击通知查看该子代理会话' : '点击通知回到该会话，在页面里写下一步',
       ])
       return
     }
     writePending(token, choicePending(token, sessionId, {
       kind: 'idle',
       session: clip(who, 22),
-      heading: '会话已结束',
+      heading: isSubagent ? '子代理任务已完成' : '主会话本轮已完成',
+      isSubagent,
     }))
     openChoiceWindow(token)
   }
@@ -552,9 +627,20 @@ export function apply(ctx, config = {}) {
 
   const onHostEnvelope = (envelope) => {
     const payload = envelope?.payload
+    if (payload?.type === 'host/session-added') {
+      sessionKinds.rememberHostFrame(payload)
+      return
+    }
+    if (payload?.type === 'host/session-removed') {
+      // Keep lineage long enough for an already-queued running:false frame.
+      // Session ids are immutable UUIDs, so retaining this small entry avoids
+      // reclassifying a disposed subagent as an unknown/root session.
+      return
+    }
     if (payload?.type !== 'host/session-status') return
     const sessionId = payload.sessionId
     const running = payload.running === true
+    sessionKinds.get(sessionId)
     const prev = runningBySession.get(sessionId)
     runningBySession.set(sessionId, running)
     if (running) {
@@ -652,6 +738,7 @@ export function apply(ctx, config = {}) {
 
     try {
       if (record.kind === 'idle' && action === 'send') {
+        if (record.isSubagent === true) return { ok: false, error: 'bad-action' }
         const text = String(extra.text ?? '').trim()
         if (!text) return { ok: false, error: 'empty' }
         const receipt = await promptIdle(apiProxy, record, text)
@@ -706,6 +793,8 @@ export function apply(ctx, config = {}) {
 
   ctx.inject(['apiProxy', 'webServer'], (scope) => {
     const { apiProxy, webServer } = scope
+    runtimeWebUrl = webServerUrl(webServer)
+    registerProtocol(runtimeConfig(), ctx.logger)
     void pumpStream('mux', apiProxy.events.mux({ rpcId: randomUUID(), payload: {} }, muxAbort.signal))
     void pumpStream('host', apiProxy.events.host({ rpcId: randomUUID(), payload: {} }, muxAbort.signal))
     inboxTimer = setInterval(() => {
@@ -763,7 +852,7 @@ export function apply(ctx, config = {}) {
           const next = normalizeConfig({ ...cfg, ...patch })
           Object.assign(cfg, next)
           writeUiOverlay(pickUiFields(cfg))
-          registerProtocol(cfg, ctx.logger)
+          registerProtocol(runtimeConfig(), ctx.logger)
           sendJson(res, 200, publicConfig(cfg))
         } catch (error) {
           sendJson(res, 400, { ok: false, error: String(error) })
@@ -874,6 +963,7 @@ export function apply(ctx, config = {}) {
           kind: record.kind,
           sessionId: record.sessionId,
           questions: record.questions ?? [],
+          isSubagent: record.isSubagent === true,
           theme: lastUiTheme,
           timeoutSec: record.timeoutSec ?? cfg.notifyTimeoutSec,
           cardOpacity: cfg.cardOpacity,
@@ -956,7 +1046,7 @@ export function apply(ctx, config = {}) {
             action: 'open',
             focus: true,
             sessionId: result.sessionId,
-          }, htmlOpenSession(cfg.webUrl, result.sessionId, cfg.openSessionMode))
+          }, htmlOpenSession(runtimeWebUrl, result.sessionId, cfg.openSessionMode))
           return
         }
 
@@ -973,6 +1063,7 @@ export function apply(ctx, config = {}) {
     toastedRpc.clear()
     lastToastAt.clear()
     runningBySession.clear()
+    sessionKinds.clear()
   }, 'dsh-attention: dispose')
 }
 
