@@ -9,6 +9,8 @@
 
 DeepSeek Harness 插件：会话需要 **审批 / 提问 / 选择**，或一轮对话结束时，在屏幕右下角弹出可操作的提醒；浏览器标签休眠后再回来时自动刷新，避免审批卡片卡住。自制卡片和系统通知仅 **Windows 10+**。
 
+当前 `0.2.x` 适配 DSH `0.1.2-alpha.3` 及其新版 Remote/Waterfall API，不兼容使用旧 `apiProxy` 接口的 DSH 版本。
+
 ## 功能
 
 - **网页休眠也能提醒。** 通知由 dsh 宿主发出，不走浏览器 `Notification`。标签被冻住时 JavaScript 停了，审批、提问、会话结束照样能弹窗。
@@ -69,6 +71,14 @@ dsh plugin --profile web add dsh-attention@latest
 插件会自动使用当前 DSH 实例的回环端口生成回调地址；多开时通知动作和会话切换会发给产生它的实例。回调路由只接受本机回环。
 
 ## 更新日志
+
+### 0.2.0
+
+- 适配 DSH `0.1.2-alpha.3`，移除旧版 `apiProxy`、`events.mux` 与 `events.host` 接口
+- 审批与提问改为接入 `approval/request`、`user-questions/request` waterfall；网页卡片和右下角卡片均可回答，先提交的一方生效
+- 会话完成提醒改为监听 `api-session/status`，下一步消息改由 `sessionController.prompt()` 提交
+- 宿主 HTTP 路由改为直接注入 `webServer`，恢复设置、焦点、待处理项和通知动作回调
+- 客户端依赖声明切换到新版 Session Controller、Renderer 与 Settings General 插件
 
 ### 0.1.2
 
