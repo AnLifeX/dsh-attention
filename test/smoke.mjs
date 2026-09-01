@@ -20,11 +20,12 @@ import {
 } from '../src/util.js'
 import {
   createSessionKindTracker,
+  createPendingDecision,
   normalizeConfig,
   publicConfig,
   sessionKindOf,
-  sessionKindOfHostFrame,
   shouldNotifySession,
+  racePendingDecision,
   webServerUrl,
 } from '../src/index.js'
 import { protocolUri, parseProtocolUri } from '../src/protocol.js'
@@ -196,13 +197,6 @@ test('session kind uses durable subagent lineage', () => {
   assert.equal(sessionKindOf({ header: { origin: 'subagent', delegationDepth: 1 } }), 'subagent')
   assert.equal(sessionKindOf({ header: { delegationDepth: 2 } }), 'subagent')
   assert.equal(sessionKindOf({ header: { delegationDepth: 0 } }), 'primary')
-  assert.equal(sessionKindOfHostFrame({
-    type: 'host/session-added',
-    sessionId: 'child',
-    parentSessionId: 'parent',
-    origin: 'subagent',
-  }), 'subagent')
-  assert.equal(sessionKindOfHostFrame({ type: 'host/session-status', sessionId: 'child', running: false }), 'unknown')
 })
 
 test('session kind cache survives subagent disposal before the stopped frame', () => {
@@ -212,9 +206,35 @@ test('session kind cache survives subagent disposal before the stopped frame', (
   live = undefined
   assert.equal(tracker.get('child'), 'subagent')
 
-  const fromHost = createSessionKindTracker(() => undefined)
-  fromHost.rememberHostFrame({ type: 'host/session-added', sessionId: 'child-2', origin: 'subagent' })
-  assert.equal(fromHost.get('child-2'), 'subagent')
+})
+
+test('native decision can win without suppressing the existing web answerer', async () => {
+  const pending = createPendingDecision()
+  let delegated = false
+  const raced = racePendingDecision(pending, async () => {
+    delegated = true
+    return new Promise(() => {})
+  })
+  await Promise.resolve()
+  assert.equal(delegated, true)
+  assert.equal(pending.settle({ type: 'answer', value: 'allowed-once' }), true)
+  assert.equal(await raced, 'allowed-once')
+  assert.equal(pending.settle({ type: 'answer', value: 'rejected' }), false)
+})
+
+test('existing web answerer can win the decision race', async () => {
+  const pending = createPendingDecision()
+  assert.deepEqual(await racePendingDecision(pending, async () => ({ answers: [{ id: 'q1', selected: ['A'] }] })), {
+    answers: [{ id: 'q1', selected: ['A'] }],
+  })
+})
+
+test('aborting a pending native decision rejects as AbortError', async () => {
+  const controller = new AbortController()
+  const pending = createPendingDecision(controller.signal)
+  const raced = racePendingDecision(pending, () => new Promise(() => {}))
+  controller.abort('cancelled')
+  await assert.rejects(raced, { name: 'AbortError' })
 })
 
 test('subagents can only emit the independently controlled idle notification', () => {
