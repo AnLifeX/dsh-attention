@@ -1,9 +1,8 @@
 /**
  * dsh-attention — 宿主半边。
  *
- * 不抢 `approval/request` waterfall（那个座位已经被 Web UI 的 apiproxy 占住）。
- * 改为订阅与浏览器同一条 `events.mux`：拿到 `approval/requested` /
- * `question/requested` 的稳定 rpcId，再弹 Windows Toast。
+ * 作为 `approval/request` / `user-questions/request` waterfall 的最外层观察者：
+ * 一边调用 next() 保留 Web UI，一边等待原生提醒卡片，先回答的一方完成请求。
  *
  * 提问 / 审批 / 会话结束时按设置二选一：
  * 系统通知卡片只负责点回会话；自制卡片负责选择、回复、提权。
@@ -194,11 +193,6 @@ export function webServerUrl(webServer) {
     : DEFAULT_WEB_URL
 }
 
-export function sessionKindOfHostFrame(payload) {
-  if (payload?.type !== 'host/session-added') return 'unknown'
-  return payload.origin === 'subagent' ? 'subagent' : 'primary'
-}
-
 export function shouldNotifySession(cfg, sessionKind, eventKind) {
   if (sessionKind === 'subagent') {
     if (eventKind === 'idle') return cfg.notifySubagentIdle
@@ -212,8 +206,8 @@ export function shouldNotifySession(cfg, sessionKind, eventKind) {
 }
 
 /**
- * host/session-status 不携带会话来源，而且它可能晚于 session/disposed 被消费。
- * 因此来源必须在 session-added / 会话仍在线时记住，不能在结束时临时反查。
+ * api-session/status 不携带会话来源，而且它可能晚于 session/disposed 被消费。
+ * 因此来源必须在会话仍在线时记住，不能在结束时临时反查。
  */
 export function createSessionKindTracker(sessionLookup = () => undefined) {
   const byId = new Map()
@@ -228,9 +222,6 @@ export function createSessionKindTracker(sessionLookup = () => undefined) {
     rememberSession(session) {
       return remember(session?.id, sessionKindOf(session))
     },
-    rememberHostFrame(payload) {
-      return remember(payload?.sessionId, sessionKindOfHostFrame(payload))
-    },
     get(sessionId) {
       const cached = byId.get(sessionId)
       if (cached) return cached
@@ -244,6 +235,41 @@ export function createSessionKindTracker(sessionLookup = () => undefined) {
       byId.clear()
     },
   }
+}
+
+/** One native-card answer competing with the existing Web waterfall. */
+export function createPendingDecision(signal) {
+  let resolveDecision
+  let settled = false
+  let onAbort
+  const decision = new Promise((resolve) => { resolveDecision = resolve })
+  const settle = (result) => {
+    if (settled) return false
+    settled = true
+    if (signal && onAbort) signal.removeEventListener('abort', onAbort)
+    resolveDecision(result)
+    return true
+  }
+  if (signal) {
+    onAbort = () => settle({ type: 'aborted', reason: signal.reason })
+    if (signal.aborted) onAbort()
+    else signal.addEventListener('abort', onAbort, { once: true })
+  }
+  return { decision, settle }
+}
+
+export async function racePendingDecision(pending, next) {
+  const delegated = Promise.resolve().then(next)
+  const native = pending.decision.then((result) => {
+    if (result.type === 'answer') return result.value
+    if (result.type === 'aborted') {
+      const error = new Error('request aborted before dsh-attention answered')
+      error.name = 'AbortError'
+      throw error
+    }
+    return delegated
+  })
+  return Promise.race([delegated, native])
 }
 
 function toastInputText(url, extra = {}) {
@@ -299,13 +325,10 @@ export function apply(ctx, config = {}) {
   let runtimeWebUrl = DEFAULT_WEB_URL
   const runtimeConfig = () => ({ ...cfg, webUrl: runtimeWebUrl })
 
-  /** token → 待处理项；rpcId → token，方便 resolved 时清掉。 */
+  /** token → 待处理项。审批 / 提问项持有 waterfall 的本地决议。 */
   const byToken = new Map()
-  const byRpcId = new Map()
-  const toastedRpc = new Set()
   const lastToastAt = new Map()
   const runningBySession = new Map()
-  const muxAbort = new AbortController()
   let lastUiFocusedAt = 0
   let lastUiTitle = ''
   let lastUiTheme = 'light'
@@ -319,27 +342,13 @@ export function apply(ctx, config = {}) {
   const remember = (record) => {
     if (record.timeoutSec == null) record.timeoutSec = cfg.notifyTimeoutSec
     byToken.set(record.token, record)
-    if (record.rpcId) byRpcId.set(record.rpcId, record.token)
   }
 
   const forgetToken = (token) => {
     const record = byToken.get(token)
     byToken.delete(token)
     removePending(token)
-    if (record?.rpcId) {
-      byRpcId.delete(record.rpcId)
-      toastedRpc.delete(record.rpcId)
-    }
-  }
-
-  const forgetRpc = (rpcId) => {
-    const token = byRpcId.get(rpcId)
-    if (token) {
-      byToken.delete(token)
-      removePending(token)
-    }
-    byRpcId.delete(rpcId)
-    toastedRpc.delete(rpcId)
+    record?.settle?.({ type: 'expired' })
   }
 
   const forgetIdleFor = (sessionId) => {
@@ -450,7 +459,7 @@ export function apply(ctx, config = {}) {
       sessionKinds.rememberSession(session)
     }
   } catch {
-    /* 实时 host/session-added 仍会补齐；未知会话按不通知处理。 */
+    /* request.agent 和实时 session/status 仍会补齐；未知会话按不通知处理。 */
   }
 
   const cooled = (key) => {
@@ -476,93 +485,100 @@ export function apply(ctx, config = {}) {
 
   const shouldFocusAfter = (action) => action === 'open'
 
-  const showApprovalToast = (envelope) => {
-    if (!cfg.enabled || uiFocused()) return
-    const rpcId = envelope.rpcId
-    const payload = envelope.payload ?? {}
-    if (!rpcId || toastedRpc.has(rpcId)) return
-    const kind = sessionKinds.get(payload.sessionId)
-    if (!shouldNotifySession(cfg, kind, 'approval')) return
-    if (cooled(`approval:${payload.sessionId}`)) return
+  const decisionRecord = (record, signal) => {
+    return { ...record, ...createPendingDecision(signal) }
+  }
+
+  const awaitAnswer = async (record, next) => {
+    try {
+      return await racePendingDecision(record, next)
+    } finally {
+      forgetToken(record.token)
+    }
+  }
+
+  const answerApproval = (request, next) => {
+    const session = request?.agent?.session
+    const sessionId = session?.id ?? request?.agent?.id
+    const kind = sessionKinds.rememberSession(session)
+    if (!sessionId || !cfg.enabled || uiFocused()) return next()
+    if (!shouldNotifySession(cfg, kind, 'approval')) return next()
+    if (cooled(`approval:${sessionId}`)) return next()
 
     const token = mintToken()
-    const session = sessionOf(payload.sessionId)
-    const who = session ? resolveTitle(ctx, session) : `#${shortSessionId(payload.sessionId)}`
-    const reason = String(payload.reason ?? '')
+    const who = session ? resolveTitle(ctx, session) : `#${shortSessionId(sessionId)}`
+    const reason = String(request.reason ?? '')
     const escalation = /^escalate sandbox to (\S+):\s*(.*)$/.exec(reason)
     const what = escalation
-      ? `${payload.toolName ?? '工具'} 提权至 ${escalation[1]}`
-      : `${payload.toolName ?? '工具'} 请求审批`
+      ? `${request.toolName ?? '工具'} 提权至 ${escalation[1]}`
+      : `${request.toolName ?? '工具'} 请求审批`
     const why = clip(escalation ? escalation[2] : reason, 120)
 
-    remember({
+    const record = decisionRecord({
       kind: 'approval',
       token,
-      rpcId,
-      sessionId: payload.sessionId,
-      approvalId: payload.approvalId,
+      sessionId,
       createdAt: Date.now(),
-    })
-    toastedRpc.add(rpcId)
+    }, request.signal)
+    remember(record)
     if (cfg.notifyStyle === 'system') {
       fireSystemToast(token, `${cfg.titlePrefix} · 需要审批`, [
         `会话 ${who}`,
         why ? `${what}：${why}` : what,
         '点击通知回到该会话，在页面里处理',
       ])
-      return
+    } else {
+      writePending(token, choicePending(token, sessionId, {
+        kind: 'approval',
+        session: clip(who, 22),
+        heading: '需要审批',
+        sub: why ? `${what}：${why}` : what,
+      }))
+      openChoiceWindow(token)
     }
-    writePending(token, choicePending(token, payload.sessionId, {
-      kind: 'approval',
-      session: clip(who, 22),
-      heading: '需要审批',
-      sub: why ? `${what}：${why}` : what,
-    }))
-    openChoiceWindow(token)
+    return awaitAnswer(record, next)
   }
 
-  const showQuestionToast = (envelope) => {
-    if (!cfg.enabled || uiFocused()) return
-    const rpcId = envelope.rpcId
-    const payload = envelope.payload ?? {}
-    if (!rpcId || toastedRpc.has(rpcId)) return
-    const kind = sessionKinds.get(payload.sessionId)
-    if (!shouldNotifySession(cfg, kind, 'question')) return
-    if (cooled(`question:${payload.sessionId}`)) return
+  const answerQuestion = (request, next) => {
+    const session = request?.agent?.session
+    const sessionId = session?.id ?? request?.agent?.id
+    const kind = sessionKinds.rememberSession(session)
+    if (!sessionId || !cfg.enabled || uiFocused()) return next()
+    if (!shouldNotifySession(cfg, kind, 'question')) return next()
+    if (cooled(`question:${sessionId}`)) return next()
 
-    const questions = Array.isArray(payload.questions) ? payload.questions : []
+    const questions = Array.isArray(request.questions) ? request.questions : []
     const token = mintToken()
-    const session = sessionOf(payload.sessionId)
-    const who = session ? resolveTitle(ctx, session) : `#${shortSessionId(payload.sessionId)}`
+    const who = session ? resolveTitle(ctx, session) : `#${shortSessionId(sessionId)}`
     const first = questions[0]
     const prompt = clip(first?.question ?? '需要你做选择', 80)
     const optionActions = questionToastActions(questions)
 
-    remember({
+    const record = decisionRecord({
       kind: 'question',
       token,
-      rpcId,
-      sessionId: payload.sessionId,
+      sessionId,
       questions,
       optionActions,
       createdAt: Date.now(),
-    })
-    toastedRpc.add(rpcId)
+    }, request.signal)
+    remember(record)
     if (cfg.notifyStyle === 'system') {
       fireSystemToast(token, `${cfg.titlePrefix} · 在等你选择`, [
         `会话 ${who}`,
         prompt,
         '点击通知回到该会话，在页面里选择',
       ])
-      return
+    } else {
+      writePending(token, choicePending(token, sessionId, {
+        kind: 'question',
+        session: clip(who, 22),
+        heading: prompt,
+        questions,
+      }))
+      openChoiceWindow(token)
     }
-    writePending(token, choicePending(token, payload.sessionId, {
-      kind: 'question',
-      session: clip(who, 22),
-      heading: prompt,
-      questions,
-    }))
-    openChoiceWindow(token)
+    return awaitAnswer(record, next)
   }
 
   const showIdleToast = (sessionId) => {
@@ -600,47 +616,9 @@ export function apply(ctx, config = {}) {
     openChoiceWindow(token)
   }
 
-  const onMuxEnvelope = (envelope) => {
-    const payload = envelope?.payload
-    const type = payload?.type
-    if (type === 'approval/requested') {
-      showApprovalToast(envelope)
-      return
-    }
-    if (type === 'question/requested') {
-      showQuestionToast(envelope)
-      return
-    }
-    if (type === 'approval/resolved') {
-      for (const record of byToken.values()) {
-        if (record.kind === 'approval' && record.approvalId === payload.approvalId) {
-          forgetRpc(record.rpcId)
-          break
-        }
-      }
-      return
-    }
-    if (type === 'question/resolved') {
-      forgetRpc(payload.questionRpcId ?? envelope.rpcId)
-    }
-  }
-
-  const onHostEnvelope = (envelope) => {
-    const payload = envelope?.payload
-    if (payload?.type === 'host/session-added') {
-      sessionKinds.rememberHostFrame(payload)
-      return
-    }
-    if (payload?.type === 'host/session-removed') {
-      // Keep lineage long enough for an already-queued running:false frame.
-      // Session ids are immutable UUIDs, so retaining this small entry avoids
-      // reclassifying a disposed subagent as an unknown/root session.
-      return
-    }
-    if (payload?.type !== 'host/session-status') return
-    const sessionId = payload.sessionId
-    const running = payload.running === true
+  const onSessionStatus = (sessionId, running) => {
     sessionKinds.get(sessionId)
+    running = running === true
     const prev = runningBySession.get(sessionId)
     runningBySession.set(sessionId, running)
     if (running) {
@@ -648,22 +626,6 @@ export function apply(ctx, config = {}) {
       return
     }
     if (prev === true && running === false) showIdleToast(sessionId)
-  }
-
-  async function pumpStream(label, iterator) {
-    try {
-      for await (const envelope of iterator) {
-        try {
-          if (label === 'mux') onMuxEnvelope(envelope)
-          else onHostEnvelope(envelope)
-        } catch (error) {
-          ctx.logger?.warn?.(`dsh-attention: 处理 ${label} 帧失败: ${String(error)}`)
-        }
-      }
-    } catch (error) {
-      if (muxAbort.signal.aborted) return
-      ctx.logger?.warn?.(`dsh-attention: ${label} 订阅结束: ${String(error)}`)
-    }
   }
 
   const rejectUnlessLoopback = (req, res) => {
@@ -675,43 +637,12 @@ export function apply(ctx, config = {}) {
     return false
   }
 
-  async function respondApproval(apiProxy, record, outcome) {
-    return apiProxy.respond({
-      type: 'client-response',
-      rpcId: record.rpcId,
-      result: {
-        ok: true,
-        value: {
-          sessionId: record.sessionId,
-          approvalId: record.approvalId,
-          outcome,
-        },
-      },
-    })
-  }
-
-  async function respondQuestion(apiProxy, record, answers) {
-    return apiProxy.respond({
-      type: 'client-response',
-      rpcId: record.rpcId,
-      result: {
-        ok: true,
-        value: {
-          sessionId: record.sessionId,
-          answer: { answers },
-        },
-      },
-    })
-  }
-
-  async function promptIdle(apiProxy, record, text) {
-    return apiProxy.sessions.prompt({
-      rpcId: randomUUID(),
-      payload: {
-        sessionId: record.sessionId,
-        mode: 'queue',
-        content: [{ type: 'text', text }],
-      },
+  async function promptIdle(sessionController, record, text) {
+    return sessionController.prompt({
+      requestId: randomUUID(),
+      sessionId: record.sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text }],
     })
   }
 
@@ -724,7 +655,7 @@ export function apply(ctx, config = {}) {
     }))
   }
 
-  async function runAct(apiProxy, token, action, extra = {}) {
+  async function runAct(sessionController, token, action, extra = {}) {
     const record = byToken.get(token)
     if (!record) return { ok: false, error: 'expired' }
     if (action === 'open') {
@@ -741,7 +672,7 @@ export function apply(ctx, config = {}) {
         if (record.isSubagent === true) return { ok: false, error: 'bad-action' }
         const text = String(extra.text ?? '').trim()
         if (!text) return { ok: false, error: 'empty' }
-        const receipt = await promptIdle(apiProxy, record, text)
+        const receipt = await promptIdle(sessionController, record, text)
         if (!receiptOk(receipt)) return { ok: false, error: 'rejected' }
         forgetToken(record.token)
         const focus = shouldFocusAfter(action)
@@ -749,9 +680,10 @@ export function apply(ctx, config = {}) {
         return { ok: true, action, message: '已发送下一步', focus, sessionId: record.sessionId }
       }
 
-      let receipt
       if (record.kind === 'approval' && (action === 'allow' || action === 'reject')) {
-        receipt = await respondApproval(apiProxy, record, action === 'allow' ? 'allowed-once' : 'rejected')
+        if (!record.settle?.({ type: 'answer', value: action === 'allow' ? 'allowed-once' : 'rejected' })) {
+          return { ok: false, error: 'not-pending' }
+        }
       } else if (record.kind === 'question' && (action === 'answer' || action.startsWith('opt'))) {
         let answers = normalizeAnswers(extra.answers)
         if (!answers.length) {
@@ -762,17 +694,13 @@ export function apply(ctx, config = {}) {
             selected: [option.selected],
           })
         }
-        receipt = await respondQuestion(apiProxy, record, answers)
+        if (!record.settle?.({ type: 'answer', value: { answers } })) {
+          return { ok: false, error: 'not-pending' }
+        }
       } else {
         return { ok: false, error: 'bad-action' }
       }
-
-      if (receipt?.accepted !== true) {
-        ctx.logger?.warn?.(`dsh-attention: respond rejected ${receipt?.reason ?? 'unknown'} action=${action}`)
-        return { ok: false, error: receipt?.reason ?? 'unknown' }
-      }
-
-      forgetRpc(record.rpcId)
+      forgetToken(record.token)
       const done = action === 'allow' ? '已允许一次' : action === 'reject' ? '已拒绝' : '已提交选择'
       const focus = shouldFocusAfter(action)
       if (focus) requestFocus(record.sessionId)
@@ -791,18 +719,27 @@ export function apply(ctx, config = {}) {
 
   let inboxTimer = null
 
-  ctx.inject(['apiProxy', 'webServer'], (scope) => {
-    const { apiProxy, webServer } = scope
+  ctx.on('session/created', (session) => {
+    sessionKinds.rememberSession(session)
+  }, { global: true })
+  ctx.on('approval/request', function (request, next) {
+    return answerApproval(request, next)
+  }, { prepend: true })
+  ctx.on('user-questions/request', function (request, next) {
+    return answerQuestion(request, next)
+  }, { prepend: true })
+  ctx.on('api-session/status', onSessionStatus)
+
+  ctx.inject(['sessionController', 'webServer'], (scope) => {
+    const { sessionController, webServer } = scope
     runtimeWebUrl = webServerUrl(webServer)
     registerProtocol(runtimeConfig(), ctx.logger)
-    void pumpStream('mux', apiProxy.events.mux({ rpcId: randomUUID(), payload: {} }, muxAbort.signal))
-    void pumpStream('host', apiProxy.events.host({ rpcId: randomUUID(), payload: {} }, muxAbort.signal))
     inboxTimer = setInterval(() => {
       for (const job of drainInbox()) {
         const token = String(job?.t ?? '')
         const action = String(job?.a ?? '')
         if (!token || !action) continue
-        void runAct(apiProxy, token, action, {
+        void runAct(sessionController, token, action, {
           answers: job.answers,
           text: job.text,
         }).then((result) => {
@@ -1017,7 +954,7 @@ export function apply(ctx, config = {}) {
           return
         }
 
-        const result = await runAct(apiProxy, token, action, {
+        const result = await runAct(sessionController, token, action, {
           answers: body.answers,
           text: toastInputText(url, body),
         })
@@ -1056,11 +993,8 @@ export function apply(ctx, config = {}) {
   })
 
   ctx.effect(() => () => {
-    muxAbort.abort()
     if (inboxTimer) clearInterval(inboxTimer)
-    byToken.clear()
-    byRpcId.clear()
-    toastedRpc.clear()
+    for (const token of [...byToken.keys()]) forgetToken(token)
     lastToastAt.clear()
     runningBySession.clear()
     sessionKinds.clear()
