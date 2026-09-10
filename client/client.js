@@ -289,12 +289,42 @@ window.__ModuleLoader__.load({
 			}
 		}
 
-		function consumeFocus(sessions) {
+		function sameQuestionIds(questions, ids) {
+			if (!Array.isArray(questions) || !Array.isArray(ids) || questions.length !== ids.length) return false;
+			for (let i = 0; i < questions.length; i += 1) {
+				if (String(questions[i]?.id ?? "") !== String(ids[i] ?? "")) return false;
+			}
+			return true;
+		}
+
+		/** 原生卡先答完时，宿主在 /focus 里带回 settled 记录；这里替 DSH 官方卡调用 answer()，让官方卡自动关闭。 */
+		function consumeNativeSettled(settledList, uiSession) {
+			if (!Array.isArray(settledList) || settledList.length === 0 || !uiSession?.pendingInteractions) return;
+			let snapshot = null;
+			try { snapshot = uiSession.pendingInteractions.getSnapshot(); } catch { return; }
+			if (!snapshot) return;
+			for (const record of settledList) {
+				if (!record || typeof record !== "object") continue;
+				const interaction = snapshot.get(record.sessionId);
+				if (!interaction || typeof interaction.answer !== "function") continue;
+				if (record.kind === "approval" && interaction.kind === "approval") {
+					if (record.callId === undefined || interaction.callId !== record.callId) continue;
+					if (record.toolName !== undefined && interaction.toolName !== record.toolName) continue;
+					Promise.resolve(interaction.answer(record.value)).catch(() => {});
+				} else if (record.kind === "question" && (interaction.kind === "question" || interaction.kind === "plan-review")) {
+					if (!sameQuestionIds(interaction.questions, record.questionIds)) continue;
+					Promise.resolve(interaction.answer(record.value)).catch(() => {});
+				}
+			}
+		}
+
+		function consumeFocus(sessions, uiSession) {
 			fetch("/dsh-attention/focus", { cache: "no-store" })
 				.then((response) => response.json())
 				.then((data) => {
 					const sessionId = data?.sessionId;
 					if (sessionId) openSession(sessions, sessionId);
+					consumeNativeSettled(data?.settled, uiSession);
 				})
 				.catch(() => {});
 		}
@@ -960,7 +990,7 @@ window.__ModuleLoader__.load({
 
 			const consume = () => {
 				if (pendingSession) applyFocus(pendingSession);
-				consumeFocus(sessions);
+				consumeFocus(sessions, ctx.uiSession);
 			};
 
 			const onVisibility = () => {
@@ -1102,7 +1132,7 @@ window.__ModuleLoader__.load({
 		}
 
 		exports.apply = apply;
-		exports.inject = ["slots", "locale", "sessions"];
+		exports.inject = ["slots", "locale", "sessions", "uiSession"];
 		return module.exports;
 	}
 });

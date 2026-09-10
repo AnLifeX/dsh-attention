@@ -31,6 +31,7 @@ import {
   questionToastActions,
   soundOf,
   powershell51,
+  findPwsh,
   buildQuestionAnswers,
   sessionFocusUrl,
   shortSessionId,
@@ -52,6 +53,7 @@ const DEFAULT_CONFIG = {
   sound: DEFAULT_SOUND,
   aumid: DEFAULT_AUMID,
   powershellPath: undefined,
+  choiceShellPath: undefined,
   cooldownMs: 1500,
   hiddenReloadMs: 8000,
   presenceStaleMs: 5000,
@@ -77,6 +79,9 @@ export function normalizeConfig(config) {
   cfg.hiddenReloadMs = Math.max(0, Math.floor(Number(cfg.hiddenReloadMs) || 0))
   cfg.presenceStaleMs = Math.max(1000, Math.floor(Number(cfg.presenceStaleMs) || DEFAULT_CONFIG.presenceStaleMs))
   cfg.sound = soundOf(cfg.sound, DEFAULT_CONFIG.sound)
+  cfg.choiceShellPath = typeof cfg.choiceShellPath === 'string' && cfg.choiceShellPath.trim()
+    ? cfg.choiceShellPath.trim()
+    : undefined
   return cfg
 }
 
@@ -322,6 +327,7 @@ function resolveTitle(ctx, session) {
 
 export function apply(ctx, config = {}) {
   const cfg = normalizeConfig({ ...config, ...readUiOverlay() })
+  const choiceShellPath = cfg.choiceShellPath || findPwsh() || powershell51()
   let runtimeWebUrl = DEFAULT_WEB_URL
   const runtimeConfig = () => ({ ...cfg, webUrl: runtimeWebUrl })
 
@@ -329,6 +335,7 @@ export function apply(ctx, config = {}) {
   const byToken = new Map()
   const lastToastAt = new Map()
   const runningBySession = new Map()
+  const nativeSettled = []
   let lastUiFocusedAt = 0
   let lastUiTitle = ''
   let lastUiTheme = 'light'
@@ -355,6 +362,35 @@ export function apply(ctx, config = {}) {
     for (const record of [...byToken.values()]) {
       if (record.kind === 'idle' && record.sessionId === sessionId) forgetToken(record.token)
     }
+  }
+
+  /**
+   * 原生卡先答完时，把结果记下来；客户端轮询 /dsh-attention/focus 时据此调用
+   * DSH 官方审批 / 提问卡的 answer()，让官方卡自动关闭（不需要刷新页面）。
+   */
+  const markNativeSettled = (record, value) => {
+    if (record.kind !== 'approval' && record.kind !== 'question') return
+    nativeSettled.push({
+      id: record.token,
+      sessionId: record.sessionId,
+      kind: record.kind,
+      value,
+      ...(record.callId !== undefined ? { callId: record.callId } : {}),
+      ...(record.toolName !== undefined ? { toolName: record.toolName } : {}),
+      ...(record.kind === 'question'
+        ? { questionIds: (record.questions ?? []).map((question) => String(question?.id ?? '')) }
+        : {}),
+      at: Date.now(),
+    })
+    const cutoff = Date.now() - 30000
+    while (nativeSettled.length && nativeSettled[0].at < cutoff) nativeSettled.shift()
+    if (nativeSettled.length > 20) nativeSettled.splice(0, nativeSettled.length - 20)
+  }
+
+  const recentNativeSettled = () => {
+    const cutoff = Date.now() - 30000
+    while (nativeSettled.length && nativeSettled[0].at < cutoff) nativeSettled.shift()
+    return nativeSettled
   }
 
   const runtimePort = () => {
@@ -410,11 +446,10 @@ export function apply(ctx, config = {}) {
   }
 
   const openChoiceWindow = (token) => {
-    if (process.platform !== 'win32') return
-    const ps = cfg.powershellPath || powershell51()
+    if (process.platform !== 'win32') return false
     try {
-      spawn(
-        ps,
+      const child = spawn(
+        choiceShellPath,
         [
           '-NoProfile',
           '-STA',
@@ -425,10 +460,40 @@ export function apply(ctx, config = {}) {
         ],
         { windowsHide: false, stdio: 'ignore' },
       )
+      child.on('error', (error) => {
+        ctx.logger?.warn?.(`dsh-attention: 无法打开选择窗: ${String(error)}`)
+        if (byToken.has(token)) forgetToken(token)
+      })
+      return true
     } catch (error) {
       ctx.logger?.warn?.(`dsh-attention: 无法打开选择窗: ${String(error)}`)
+      if (byToken.has(token)) forgetToken(token)
+      return false
     }
   }
+
+  /** 预热：提前编译/加载 C# 缓存并加载 WPF，让第一张卡片不用等冷启动。 */
+  const prewarmChoiceWindow = () => {
+    if (process.platform !== 'win32' || !cfg.enabled || cfg.notifyStyle === 'system') return
+    try {
+      const child = spawn(
+        choiceShellPath,
+        [
+          '-NoProfile',
+          '-STA',
+          '-WindowStyle', 'Hidden',
+          '-ExecutionPolicy', 'Bypass',
+          '-File', choiceWindowPath(),
+          '-Token', '__prewarm__',
+        ],
+        { windowsHide: true, stdio: 'ignore' },
+      )
+      child.on('error', () => { /* 预热失败不影响正式路径 */ })
+    } catch {
+      /* 预热失败不影响正式路径 */
+    }
+  }
+  prewarmChoiceWindow()
 
   const fireSystemToast = (token, title, lines) => {
     const xml = buildToastXml({
@@ -518,6 +583,8 @@ export function apply(ctx, config = {}) {
       kind: 'approval',
       token,
       sessionId,
+      callId: request.callId,
+      toolName: request.toolName,
       createdAt: Date.now(),
     }, request.signal)
     remember(record)
@@ -680,8 +747,10 @@ export function apply(ctx, config = {}) {
         return { ok: true, action, message: '已发送下一步', focus, sessionId: record.sessionId }
       }
 
+      let settledValue
       if (record.kind === 'approval' && (action === 'allow' || action === 'reject')) {
-        if (!record.settle?.({ type: 'answer', value: action === 'allow' ? 'allowed-once' : 'rejected' })) {
+        settledValue = action === 'allow' ? 'allowed-once' : 'rejected'
+        if (!record.settle?.({ type: 'answer', value: settledValue })) {
           return { ok: false, error: 'not-pending' }
         }
       } else if (record.kind === 'question' && (action === 'answer' || action.startsWith('opt'))) {
@@ -694,12 +763,14 @@ export function apply(ctx, config = {}) {
             selected: [option.selected],
           })
         }
-        if (!record.settle?.({ type: 'answer', value: { answers } })) {
+        settledValue = { answers }
+        if (!record.settle?.({ type: 'answer', value: settledValue })) {
           return { ok: false, error: 'not-pending' }
         }
       } else {
         return { ok: false, error: 'bad-action' }
       }
+      markNativeSettled(record, settledValue)
       forgetToken(record.token)
       const done = action === 'allow' ? '已允许一次' : action === 'reject' ? '已拒绝' : '已提交选择'
       const focus = shouldFocusAfter(action)
@@ -875,7 +946,7 @@ export function apply(ctx, config = {}) {
           res.end()
           return
         }
-        sendJson(res, 200, { ok: true, sessionId: currentFocus() })
+        sendJson(res, 200, { ok: true, sessionId: currentFocus(), settled: recentNativeSettled() })
       },
     }), 'dsh-attention: focus')
 
