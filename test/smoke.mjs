@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 import {
   buildToastXml,
@@ -10,6 +13,7 @@ import {
   questionToastActions,
   questionToastMode,
   buildQuestionAnswers,
+  findPwsh,
   notifyStyleOf,
   notifyTimeoutSecOf,
   openSessionModeOf,
@@ -208,7 +212,7 @@ test('session kind cache survives subagent disposal before the stopped frame', (
 
 })
 
-test('native decision can win without suppressing the existing web answerer', async () => {
+test('immediate mode starts the web answerer and the native decision can still win', async () => {
   const pending = createPendingDecision()
   let delegated = false
   const raced = racePendingDecision(pending, async () => {
@@ -222,7 +226,7 @@ test('native decision can win without suppressing the existing web answerer', as
   assert.equal(pending.settle({ type: 'answer', value: 'rejected' }), false)
 })
 
-test('existing web answerer can win the decision race', async () => {
+test('immediate mode lets the existing web answerer win the decision race', async () => {
   const pending = createPendingDecision()
   assert.deepEqual(await racePendingDecision(pending, async () => ({ answers: [{ id: 'q1', selected: ['A'] }] })), {
     answers: [{ id: 'q1', selected: ['A'] }],
@@ -236,6 +240,33 @@ test('aborting a pending native decision rejects as AbortError', async () => {
   controller.abort('cancelled')
   await assert.rejects(raced, { name: 'AbortError' })
 })
+
+test('findPwsh ignores missing candidates', () => {
+  assert.equal(findPwsh({
+    PATH: 'D:\\dsh-attention-missing-bin',
+    ProgramFiles: 'D:\\dsh-attention-missing-pf',
+    'ProgramFiles(x86)': 'D:\\dsh-attention-missing-pf86',
+    LOCALAPPDATA: '',
+  }), '')
+})
+
+if (process.platform === 'win32') {
+  test('findPwsh finds pwsh on PATH', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-attention-pwsh-'))
+    try {
+      const fake = join(dir, 'pwsh.exe')
+      writeFileSync(fake, '')
+      assert.equal(findPwsh({
+        PATH: dir,
+        ProgramFiles: 'D:\\dsh-attention-missing-pf',
+        'ProgramFiles(x86)': 'D:\\dsh-attention-missing-pf86',
+        LOCALAPPDATA: '',
+      }), fake)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+}
 
 test('subagents can only emit the independently controlled idle notification', () => {
   const defaults = normalizeConfig({})
