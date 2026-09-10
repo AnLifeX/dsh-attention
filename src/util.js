@@ -2,6 +2,8 @@
  * 纯函数：Toast XML 转义、文案截断、回环校验、提问按钮映射。
  * 不依赖 cordis，方便 node:test 直接测。
  */
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 
 export const DEFAULT_WEB_URL = 'http://127.0.0.1:3080'
 export const DEFAULT_AUMID = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe'
@@ -25,6 +27,40 @@ export function clip(value, max) {
 export function powershell51() {
   const windir = process.env.windir || process.env.WINDIR || 'C:\\Windows'
   return `${windir}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+}
+
+/**
+ * 自制卡片优先 PowerShell 7：进程启动比 Windows PowerShell 5.1 快约 0.7s。
+ * 找不到时返回空串，调用方回退 powershell51()。
+ */
+export function findPwsh(env = process.env) {
+  if (process.platform !== 'win32') return ''
+  const candidates = []
+  const pathValue = String(env.PATH ?? env.Path ?? env.path ?? '')
+  for (const dir of pathValue.split(';')) {
+    const trimmed = dir.trim().replace(/^"|"$/g, '')
+    if (trimmed) candidates.push(join(trimmed, 'pwsh.exe'))
+  }
+  const programFiles = env.ProgramFiles || env.PROGRAMFILES || 'C:\\Program Files'
+  const programFilesX86 = env['ProgramFiles(x86)'] || env.PROGRAMFILES_X86 || 'C:\\Program Files (x86)'
+  const localAppData = env.LOCALAPPDATA || ''
+  candidates.push(
+    join(programFiles, 'PowerShell', '7', 'pwsh.exe'),
+    join(programFiles, 'PowerShell', '7-preview', 'pwsh.exe'),
+    join(programFilesX86, 'PowerShell', '7', 'pwsh.exe'),
+  )
+  if (localAppData) candidates.push(join(localAppData, 'Microsoft', 'WindowsApps', 'pwsh.exe'))
+  const seen = new Set()
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) continue
+    seen.add(candidate)
+    try {
+      if (existsSync(candidate)) return candidate
+    } catch {
+      /* 单个候选不可用不影响继续找 */
+    }
+  }
+  return ''
 }
 
 export function isLoopbackAddress(address) {

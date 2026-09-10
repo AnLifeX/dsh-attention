@@ -20,27 +20,15 @@ trap {
 }
 Write-ActLog ('start token=' + $Token)
 
-if (-not ('DshAttention.DpiBoot' -as [type])) {
-  Add-Type -TypeDefinition @"
+# C# P/Invoke helpers. Compile once per PowerShell runtime, then reuse the DLL
+# so a popup does not pay the Add-Type compile cost every time.
+$nativeSource = @"
 using System;
+using System.Text;
 using System.Runtime.InteropServices;
 public static class DshAttentionDpiBoot {
   [DllImport("shcore.dll")] public static extern int SetProcessDpiAwareness(int value);
 }
-"@
-}
-try { [void][DshAttentionDpiBoot]::SetProcessDpiAwareness(2) } catch {}
-
-Add-Type -AssemblyName PresentationFramework
-Add-Type -AssemblyName PresentationCore
-Add-Type -AssemblyName WindowsBase
-Add-Type -AssemblyName System.Web.Extensions
-
-if (-not ('DshAttention.Native' -as [type])) {
-  Add-Type -TypeDefinition @"
-using System;
-using System.Text;
-using System.Runtime.InteropServices;
 public static class DshAttentionNative {
   public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -101,6 +89,44 @@ public static class DshAttentionNative {
   }
 }
 "@
+
+function Initialize-DshAttentionNative {
+  if (('DshAttentionDpiBoot' -as [type]) -and ('DshAttentionNative' -as [type])) { return 'memory' }
+  $tag = if ([string]$PSVersionTable.PSEdition -eq 'Core') { 'core' } else { 'desktop' }
+  $cacheDir = Join-Path $env:USERPROFILE '.dsh\dsh-attention-work'
+  $cacheDll = Join-Path $cacheDir ('DshAttentionNative-v2-' + $tag + '.dll')
+  if (Test-Path -LiteralPath $cacheDll) {
+    try {
+      Add-Type -Path $cacheDll -ErrorAction Stop
+      if (('DshAttentionDpiBoot' -as [type]) -and ('DshAttentionNative' -as [type])) { return 'cache' }
+    } catch { }
+  }
+  try {
+    if (-not (Test-Path -LiteralPath $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null }
+    $tmp = $cacheDll + '.' + $PID + '.tmp.dll'
+    Add-Type -TypeDefinition $nativeSource -OutputAssembly $tmp -ErrorAction Stop
+    try { Move-Item -LiteralPath $tmp -Destination $cacheDll -Force -ErrorAction Stop } catch { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $cacheDll) {
+      Add-Type -Path $cacheDll -ErrorAction Stop
+      if (('DshAttentionDpiBoot' -as [type]) -and ('DshAttentionNative' -as [type])) { return 'compiled' }
+    }
+  } catch { }
+  Add-Type -TypeDefinition $nativeSource
+  return 'memory'
+}
+
+$nativeMode = Initialize-DshAttentionNative
+Write-ActLog ('shell=' + $PSVersionTable.PSVersion + ' edition=' + $PSVersionTable.PSEdition + ' native=' + $nativeMode)
+try { [void][DshAttentionDpiBoot]::SetProcessDpiAwareness(2) } catch {}
+
+try {
+  Add-Type -AssemblyName PresentationFramework -ErrorAction Stop
+  Add-Type -AssemblyName PresentationCore
+  Add-Type -AssemblyName WindowsBase
+  try { Add-Type -AssemblyName System.Windows.Extensions -ErrorAction Stop } catch {}
+} catch {
+  Write-ActLog ('wpf-error=' + $_.Exception.Message)
+  exit 1
 }
 
 $work = Join-Path $env:USERPROFILE '.dsh\dsh-attention-work'
@@ -139,9 +165,7 @@ function U {
 }
 
 function ConvertTo-InboxJson($Obj) {
-  $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
-  $ser.MaxJsonLength = 2097152
-  return $ser.Serialize($Obj)
+  return ($Obj | ConvertTo-Json -Compress -Depth 10)
 }
 
 function Write-Inbox($Obj) {
