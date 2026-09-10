@@ -12,13 +12,13 @@
     "windows"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/anlifex/dsh-attention#readme",
+  "homepage": "https://github.com/AnLifeX/dsh-attention#readme",
   "bugs": {
-    "url": "https://github.com/anlifex/dsh-attention/issues"
+    "url": "https://github.com/AnLifeX/dsh-attention/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anlifex/dsh-attention.git"
+    "url": "git+https://github.com/AnLifeX/dsh-attention.git"
   },
   "type": "module",
   "main": "src/index.js",
