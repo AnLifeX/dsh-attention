@@ -22,6 +22,8 @@ window.__ModuleLoader__.load({
 		const HEARTBEAT_MS = 4000;
 		const PRESENCE_MS = 2000;
 		const FOCUS_POLL_MS = 800;
+		const SETTLED_CACHE_KEY = "dsh-attention:settled";
+		const DEFAULT_SETTLED_MAX = 50;
 		const INPUT_GRACE_MS = 2000;
 		const NS = "dsh-attention";
 		const BELL_MASK = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23000' d='M8 1.5C5.9 1.5 4.2 3.2 4.2 5.3v1.6c0 .7-.3 1.4-.8 1.9L2.4 10v.9h11.2V10l-1-1.2c-.5-.5-.8-1.2-.8-1.9V5.3C11.8 3.2 10.1 1.5 8 1.5zM6.1 12.4C6.5 13.4 7.4 14 8.5 14s2-.6 2.4-1.6H6.1z'/%3E%3Ccircle cx='11.6' cy='3.5' r='2.1'/%3E%3C/svg%3E\") 50%/contain no-repeat";
@@ -52,11 +54,11 @@ window.__ModuleLoader__.load({
 			openNewHint: "每次都新开一个页面打开该会话。普通浏览器标签请用这个。",
 			openReuseWarn: "当前不是 Edge 应用，而是普通浏览器标签。这时选「复用已有窗口」经常找不到标签或看起来没反应，建议改成「新开」，或把本站安装成应用后再选复用。",
 			hiddenReloadSec: "隐藏多久后刷新（秒）",
-			hiddenReloadSecHint: "标签切走超过这么多秒再回来时，刷新一次，避免卡片卡住。填 0 则不自动刷新，改完点保存后立即生效。",
-			cooldownMs: "同一会话提醒间隔（秒）",
-			cooldownMsHint: "同一会话连续弹提醒的最短间隔，避免刷屏。可填写小数。",
+			hiddenReloadSecHint: "标签切走超过这么多秒再回来时，刷新一次，避免卡片卡住。填 0 关闭自动刷新，填 -1 表示无限（也等于不刷新）。改完点保存后立即生效。",
+			settledMax: "已答记录条数",
+			settledMaxHint: "记住多少条「已经用弹窗答过」的记录，用来在你回到窗口时自动关掉网页卡片。默认 50；填 0 不记录（等于关掉自动关闭），填 -1 不限条数（会随用随涨）。",
 			notifyTimeoutSec: "停留时间（秒）",
-			notifyTimeoutSecHint: "到点自动消失。填 0 则一直留到你关掉。系统通知屏幕上只有约 7 秒 / 25 秒两档；自制卡片按填写的秒数。",
+			notifyTimeoutSecHint: "到点自动消失。填 -1 表示无限（一直留到你关掉），填 0 关闭自动消失（效果相同）。系统通知屏幕上只有约 7 秒 / 25 秒两档；自制卡片按填写的秒数。",
 			cardOpacity: "卡片不透明度",
 			cardOpacityHint: "调整毛玻璃卡片的不透明程度，越小越透。",
 			cardPreview: "预览卡片",
@@ -100,11 +102,11 @@ window.__ModuleLoader__.load({
 			openNewHint: "Always open a new page for that session. Use this in a normal browser tab.",
 			openReuseWarn: "This window is a normal browser tab, not an Edge app. Reuse existing window often fails to find the tab. Choose Open new, or install this site as an app and then use Reuse.",
 			hiddenReloadSec: "Reload after hidden (seconds)",
-			hiddenReloadSecHint: "If the tab was away longer than this, reload once when you come back so pending cards return. Set to 0 to disable automatic reloads. Takes effect as soon as you save.",
-			cooldownMs: "Minimum gap between alerts (seconds)",
-			cooldownMsHint: "Ignore another reminder for the same session until this many seconds have passed. Decimals are supported.",
+			hiddenReloadSecHint: "If the tab was away longer than this, reload once when you come back so pending cards return. 0 disables automatic reloads; -1 means unlimited (the same). Takes effect as soon as you save.",
+			settledMax: "Answered records kept",
+			settledMaxHint: "How many answers given in the popup to remember, so the web card can close itself when you return. Default 50; 0 keeps none (turns the auto-close off), -1 keeps all (grows as you go).",
 			notifyTimeoutSec: "Stay on screen (seconds)",
-			notifyTimeoutSecHint: "Auto-hide after this many seconds. 0 keeps it until you dismiss it. System toasts only stay about 7s or 25s on screen; the custom card uses the exact value.",
+			notifyTimeoutSecHint: "Auto-hide after this many seconds. -1 means unlimited (stays until you dismiss it); 0 turns auto-hide off (the same effect). System toasts only stay about 7s or 25s on screen; the custom card uses the exact value.",
 			cardOpacity: "Card opacity",
 			cardOpacityHint: "Adjust how opaque the frosted-glass card is. Lower is more transparent.",
 			cardPreview: "Preview card",
@@ -125,7 +127,7 @@ window.__ModuleLoader__.load({
 
 		const APPEARANCE_KEYS = ["notifyStyle", "notifyTimeoutSec", "cardOpacity"];
 		const SCOPE_KEYS = ["notifyApproval", "notifyQuestion", "notifyIdle", "notifySubagentIdle", "soundEnabled", "openSessionMode"];
-		const WAKE_KEYS = ["hiddenReloadMs", "cooldownMs"];
+		const WAKE_KEYS = ["hiddenReloadMs", "settledMax"];
 
 		function pickKeys(obj, keys) {
 			const out = {};
@@ -135,16 +137,26 @@ window.__ModuleLoader__.load({
 			return out;
 		}
 
+		/** 数值类设置的比较口径：-1 表示无限，0 表示关闭，其余取整。 */
+		function edgeLimit(value) {
+			const n = Number(value);
+			if (!Number.isFinite(n)) return 0;
+			return n < 0 ? -1 : Math.max(0, Math.floor(n));
+		}
+
 		function samePick(a, b, keys) {
 			for (const key of keys) {
 				let left = a?.[key];
 				let right = b?.[key];
-				if (key === "hiddenReloadMs" || key === "cooldownMs") {
-					left = Math.max(0, Math.floor(Number(left) || 0));
-					right = Math.max(0, Math.floor(Number(right) || 0));
+				if (key === "hiddenReloadMs") {
+					left = edgeLimit(left);
+					right = edgeLimit(right);
 				} else if (key === "notifyTimeoutSec") {
-					left = Number.isFinite(Number(left)) ? Math.max(0, Math.min(86400, Math.floor(Number(left)))) : 30;
-					right = Number.isFinite(Number(right)) ? Math.max(0, Math.min(86400, Math.floor(Number(right)))) : 30;
+					left = Number.isFinite(Number(left)) ? edgeLimit(Math.min(86400, Math.floor(Number(left)))) : 30;
+					right = Number.isFinite(Number(right)) ? edgeLimit(Math.min(86400, Math.floor(Number(right)))) : 30;
+				} else if (key === "settledMax") {
+					left = Number.isFinite(Number(left)) ? Math.max(-1, Math.floor(Number(left))) : 50;
+					right = Number.isFinite(Number(right)) ? Math.max(-1, Math.floor(Number(right))) : 50;
 				} else if (key === "cardOpacity") {
 					left = Math.round((Number.isFinite(Number(left)) ? Math.min(1, Math.max(0.1, Number(left))) : 0.78) * 100) / 100;
 					right = Math.round((Number.isFinite(Number(right)) ? Math.min(1, Math.max(0.1, Number(right))) : 0.78) * 100) / 100;
@@ -297,24 +309,125 @@ window.__ModuleLoader__.load({
 			return true;
 		}
 
-		/** 原生卡先答完时，宿主在 /focus 里带回 settled 记录；这里替 DSH 官方卡调用 answer()，让官方卡自动关闭。 */
-		function consumeNativeSettled(settledList, uiSession) {
-			if (!Array.isArray(settledList) || settledList.length === 0 || !uiSession?.pendingInteractions) return;
-			let snapshot = null;
-			try { snapshot = uiSession.pendingInteractions.getSnapshot(); } catch { return; }
-			if (!snapshot) return;
-			for (const record of settledList) {
-				if (!record || typeof record !== "object") continue;
-				const interaction = snapshot.get(record.sessionId);
-				if (!interaction || typeof interaction.answer !== "function") continue;
-				if (record.kind === "approval" && interaction.kind === "approval") {
-					if (record.callId === undefined || interaction.callId !== record.callId) continue;
-					if (record.toolName !== undefined && interaction.toolName !== record.toolName) continue;
-					Promise.resolve(interaction.answer(record.value)).catch(() => {});
-				} else if (record.kind === "question" && (interaction.kind === "question" || interaction.kind === "plan-review")) {
-					if (!sameQuestionIds(interaction.questions, record.questionIds)) continue;
-					Promise.resolve(interaction.answer(record.value)).catch(() => {});
+		/** 毫秒配置在输入框里显示成秒；-1（无限）原样显示。 */
+		function secInputOf(value, fallbackMs, round) {
+			const ms = Number(value);
+			if (!Number.isFinite(ms)) return String(round ? Math.round(fallbackMs / 1000) : fallbackMs / 1000);
+			if (ms < 0) return "-1";
+			return String(round ? Math.round(ms / 1000) : ms / 1000);
+		}
+
+		function readSettledCache() {
+			try {
+				const raw = JSON.parse(sessionStorage.getItem(SETTLED_CACHE_KEY) ?? "[]");
+				return Array.isArray(raw) ? raw.filter((item) => item && typeof item === "object") : [];
+			} catch { return []; }
+		}
+
+		function writeSettledCache(records) {
+			try {
+				sessionStorage.setItem(SETTLED_CACHE_KEY, JSON.stringify(trimSettled(records)));
+			} catch { /* 隐私模式或存储被禁用时忽略 */ }
+		}
+
+		/** 用户在设置里配的条数：-1 = 不限，0 = 一条不留。 */
+		let settledMax = DEFAULT_SETTLED_MAX;
+
+		function trimSettled(records) {
+			if (settledMax < 0) return records;
+			if (settledMax === 0) return [];
+			return records.slice(-settledMax);
+		}
+
+		/**
+		 * 宿主原生卡已答、但官方卡还没关掉的记录（宿主在 /focus 里带回）。
+		 * 记录不设过期时间，只受条数上限约束 —— 这样无论你隔多久回到窗口，
+		 * 重放出来的官方卡都能被自动答掉。落一份到 sessionStorage 是为了跨
+		 * 「唤醒后自动重载」保留：重载会重开事件流，缓存里还有答案才能立刻答掉。
+		 */
+		let settledLog = readSettledCache();
+		const settledApplied = new Set();
+		const settledSeenAt = new WeakMap();
+
+		function rememberSettled(list) {
+			if (settledMax === 0) return;
+			let changed = false;
+			for (const record of Array.isArray(list) ? list : []) {
+				if (!record || typeof record !== "object" || record.id === undefined) continue;
+				const index = settledLog.findIndex((item) => item.id === record.id);
+				if (index >= 0) settledLog.splice(index, 1);
+				settledLog.push(record);
+				changed = true;
+			}
+			if (!changed) return;
+			settledLog = trimSettled(settledLog);
+			writeSettledCache(settledLog);
+		}
+
+		/** 这张卡第一次被我们看到的时间；只有缺 callId 的审批兜底匹配才用得上。 */
+		function firstSeenAt(interaction) {
+			const known = settledSeenAt.get(interaction);
+			if (known !== undefined) return known;
+			const now = Date.now();
+			settledSeenAt.set(interaction, now);
+			return now;
+		}
+
+		function settledMatches(record, interaction, seenAt) {
+			if (!interaction || typeof interaction.answer !== "function") return false;
+			if (record.kind === "approval") {
+				if (interaction.kind !== "approval") return false;
+				if (record.callId !== undefined) {
+					if (interaction.callId !== record.callId) return false;
+					return record.toolName === undefined || interaction.toolName === record.toolName;
 				}
+				// DSH 的 callId 是可选的。两侧都没有时只能用「会话 + 工具名」兜底，
+				// 且只认答单之前就已经挂在那里的卡，免得把同名工具的新审批一起答掉。
+				if (interaction.callId !== undefined) return false;
+				if (record.toolName === undefined || interaction.toolName !== record.toolName) return false;
+				return seenAt !== undefined && Number(record.at ?? 0) >= seenAt;
+			}
+			if (record.kind === "question") {
+				if (interaction.kind !== "question" && interaction.kind !== "plan-review") return false;
+				return sameQuestionIds(interaction.questions, record.questionIds);
+			}
+			return false;
+		}
+
+		/** 读一次待处理交互快照。 */
+		function pendingSnapshotOf(uiSession) {
+			try { return uiSession?.pendingInteractions?.getSnapshot() ?? null; } catch { return null; }
+		}
+
+		/** 每次看到卡片都盖一次「首次出现」时间；缺 callId 的审批兜底匹配靠它避免误答。 */
+		function noteSeenInteractions(uiSession) {
+			const snapshot = pendingSnapshotOf(uiSession);
+			if (!snapshot) return null;
+			for (const interaction of snapshot.values()) {
+				if (interaction && typeof interaction === "object") firstSeenAt(interaction);
+			}
+			return snapshot;
+		}
+
+		/**
+		 * 把本地缓存的 settled 记录套到还挂着的官方卡上：替 DSH 调用 answer() 让卡片消失。
+		 * 卡片注册瞬间就会同步跑一次 —— React 往往还没绘制就答完了，正常路径看不到闪。
+		 */
+		function applyNativeSettled(uiSession) {
+			if (!uiSession?.pendingInteractions) return;
+			const snapshot = noteSeenInteractions(uiSession);
+			if (!snapshot || snapshot.size === 0 || settledLog.length === 0) return;
+			for (const record of settledLog) {
+				if (!record || settledApplied.has(record.id)) continue;
+				const interaction = snapshot.get(record.sessionId);
+				if (!interaction) continue;
+				if (!settledMatches(record, interaction, firstSeenAt(interaction))) continue;
+				settledApplied.add(record.id);
+				try {
+					// answer() 在交互已结算时会同步抛错：必须就地兜住，否则一条过期记录
+					// 就能打断整批处理（原来靠 Promise.resolve(...).catch 是拦不住的）。
+					Promise.resolve(interaction.answer(record.value)).catch(() => {});
+				} catch { /* 已结算，跳过 */ }
 			}
 		}
 
@@ -324,7 +437,8 @@ window.__ModuleLoader__.load({
 				.then((data) => {
 					const sessionId = data?.sessionId;
 					if (sessionId) openSession(sessions, sessionId);
-					consumeNativeSettled(data?.settled, uiSession);
+					rememberSettled(data?.settled);
+					applyNativeSettled(uiSession);
 				})
 				.catch(() => {});
 		}
@@ -647,17 +761,17 @@ window.__ModuleLoader__.load({
 				if (Object.hasOwn(payload, "openSessionMode")) payload.openSessionMode = payload.openSessionMode === "new" ? "new" : "reuse";
 				if (Object.hasOwn(payload, "hiddenReloadMs")) {
 					const n = Number(payload.hiddenReloadMs);
-					if (Number.isFinite(n)) payload.hiddenReloadMs = Math.max(0, Math.floor(n));
+					if (Number.isFinite(n)) payload.hiddenReloadMs = n < 0 ? -1 : Math.max(0, Math.floor(n));
 					else delete payload.hiddenReloadMs;
 				}
-				if (Object.hasOwn(payload, "cooldownMs")) {
-					const n = Number(payload.cooldownMs);
-					if (Number.isFinite(n)) payload.cooldownMs = Math.max(0, Math.floor(n));
-					else delete payload.cooldownMs;
+				if (Object.hasOwn(payload, "settledMax")) {
+					const n = Number(payload.settledMax);
+					if (Number.isFinite(n)) payload.settledMax = Math.max(-1, Math.min(1000000, Math.floor(n)));
+					else delete payload.settledMax;
 				}
 				if (Object.hasOwn(payload, "notifyTimeoutSec")) {
 					const n = Number(payload.notifyTimeoutSec);
-					if (Number.isFinite(n)) payload.notifyTimeoutSec = Math.max(0, Math.min(86400, Math.floor(n)));
+					if (Number.isFinite(n)) payload.notifyTimeoutSec = n < 0 ? -1 : Math.max(0, Math.min(86400, Math.floor(n)));
 					else delete payload.notifyTimeoutSec;
 				}
 				if (Object.hasOwn(payload, "cardOpacity")) {
@@ -793,7 +907,7 @@ window.__ModuleLoader__.load({
 							react.createElement("input", {
 								className: "dshatt_input",
 								type: "number",
-								min: "0",
+								min: "-1",
 								max: "86400",
 								step: "5",
 								disabled: off,
@@ -821,10 +935,10 @@ window.__ModuleLoader__.load({
 							react.createElement("input", {
 								className: "dshatt_input",
 								type: "number",
-								min: "0",
+								min: "-1",
 								max: "86400",
 								step: "1",
-								value: String(Math.max(0, Math.round(Number(wakeView.hiddenReloadMs ?? 8000) / 1000) || 0)),
+								value: secInputOf(wakeView.hiddenReloadMs, 8000, true),
 								onChange: (event) => {
 									const raw = event.target.value;
 									if (raw === "") {
@@ -833,26 +947,30 @@ window.__ModuleLoader__.load({
 									}
 									const sec = Number(raw);
 									if (!Number.isFinite(sec)) return;
+									if (sec < 0) {
+										patchCard("wake", { hiddenReloadMs: -1 });
+										return;
+									}
 									patchCard("wake", { hiddenReloadMs: Math.max(0, Math.min(86400, Math.floor(sec))) * 1000 });
 								}
 							})),
-						react.createElement(FieldRow, { t, key: "cd", labelKey: "cooldownMs", hintKey: "cooldownMsHint" },
+						react.createElement(FieldRow, { t, key: "sm", labelKey: "settledMax", hintKey: "settledMaxHint" },
 							react.createElement("input", {
 								className: "dshatt_input",
 								type: "number",
-								min: "0",
-								max: "86400",
-								step: "0.1",
-								value: String(Math.max(0, Number(wakeView.cooldownMs ?? 1500) / 1000)),
+								min: "-1",
+								max: "1000000",
+								step: "1",
+								value: String(wakeView.settledMax === undefined || wakeView.settledMax === "" ? DEFAULT_SETTLED_MAX : Number(wakeView.settledMax)),
 								onChange: (event) => {
 									const raw = event.target.value;
 									if (raw === "") {
-										patchCard("wake", { cooldownMs: "" });
+										patchCard("wake", { settledMax: "" });
 										return;
 									}
-									const sec = Number(raw);
-									if (!Number.isFinite(sec)) return;
-									patchCard("wake", { cooldownMs: Math.round(Math.max(0, Math.min(86400, sec)) * 1000) });
+									const n = Number(raw);
+									if (!Number.isFinite(n)) return;
+									patchCard("wake", { settledMax: Math.max(-1, Math.min(1000000, Math.floor(n))) });
 								}
 							}))
 					])
@@ -968,7 +1086,15 @@ window.__ModuleLoader__.load({
 			const applyHiddenReload = (config) => {
 				if (!config || disposed) return;
 				if (Number.isFinite(Number(config.hiddenReloadMs))) {
-					hiddenReloadMs = Math.max(0, Math.floor(Number(config.hiddenReloadMs)));
+					const ms = Math.floor(Number(config.hiddenReloadMs));
+					hiddenReloadMs = ms < 0 ? -1 : Math.max(0, ms);
+				}
+				if (Number.isFinite(Number(config.settledMax))) {
+					settledMax = Math.max(-1, Math.floor(Number(config.settledMax)));
+					if (settledMax === 0 && settledLog.length > 0) {
+						settledLog = [];
+						writeSettledCache(settledLog);
+					}
 				}
 			};
 
@@ -990,8 +1116,18 @@ window.__ModuleLoader__.load({
 
 			const consume = () => {
 				if (pendingSession) applyFocus(pendingSession);
+				applyNativeSettled(ctx.uiSession);
 				consumeFocus(sessions, ctx.uiSession);
 			};
+
+			// 官方卡被注册时（正常出现，或网关在重连后重放）立刻消费本地缓存，不等下一次轮询。
+			let stopSettledWatch = () => {};
+			try {
+				const pending = ctx.uiSession?.pendingInteractions;
+				if (pending && typeof pending.subscribe === "function") {
+					stopSettledWatch = pending.subscribe(() => { applyNativeSettled(ctx.uiSession); }) ?? stopSettledWatch;
+				}
+			} catch { stopSettledWatch = () => {}; }
 
 			const onVisibility = () => {
 				ensureTitleMark();
@@ -1081,6 +1217,7 @@ window.__ModuleLoader__.load({
 				clearInterval(timer);
 				clearInterval(presenceTimer);
 				clearInterval(focusTimer);
+				try { stopSettledWatch(); } catch { /* ignore */ }
 				try { stopThemeWatch(); } catch { /* ignore */ }
 				try { channel?.close(); } catch { /* ignore */ }
 				document.removeEventListener("visibilitychange", onVisibility);
