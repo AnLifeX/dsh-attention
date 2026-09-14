@@ -309,8 +309,13 @@ window.__ModuleLoader__.load({
 			return true;
 		}
 
-		/** 毫秒配置在输入框里显示成秒；-1（无限）原样显示。 */
+		/**
+		 * 毫秒配置在输入框里显示成秒；-1（无限）原样显示。
+		 * 注意 value === "" 表示「用户正在输入半成品」（例如只打了个负号），
+		 * 必须原样返回空串：否则 React 会把 "0" / 默认值写回输入框，负号就被冲掉了。
+		 */
 		function secInputOf(value, fallbackMs, round) {
+			if (value === "") return "";
 			const ms = Number(value);
 			if (!Number.isFinite(ms)) return String(round ? Math.round(fallbackMs / 1000) : fallbackMs / 1000);
 			if (ms < 0) return "-1";
@@ -961,7 +966,9 @@ window.__ModuleLoader__.load({
 								min: "-1",
 								max: "1000000",
 								step: "1",
-								value: String(wakeView.settledMax === undefined || wakeView.settledMax === "" ? DEFAULT_SETTLED_MAX : Number(wakeView.settledMax)),
+								value: String(wakeView.settledMax === ""
+									? ""
+									: (Number.isFinite(Number(wakeView.settledMax)) ? Math.floor(Number(wakeView.settledMax)) : DEFAULT_SETTLED_MAX)),
 								onChange: (event) => {
 									const raw = event.target.value;
 									if (raw === "") {
