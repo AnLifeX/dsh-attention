@@ -62,11 +62,11 @@ dsh plugin --profile web add dsh-attention@latest
 | `notifyIdle` | `true` | 一轮对话结束后的下一步输入 |
 | `notifySubagentIdle` | `false` | 子代理会话结束通知；弹窗不提供回复输入框 |
 | `notifyStyle` | `custom` | `custom` 自制卡片；`system` 系统通知 |
-| `notifyTimeoutSec` | `30` | 停留秒数；`0` 一直留到关掉。系统通知实际只有约 7 秒 / 25 秒两档 |
+| `notifyTimeoutSec` | `30` | 停留秒数；`-1` 无限（一直留到关掉），`0` 关闭自动消失。系统通知实际只有约 7 秒 / 25 秒两档 |
 | `cardOpacity` | `0.78` | 自制毛玻璃卡片不透明度，`0.1`–`1`，越小越透 |
 | `openSessionMode` | `reuse` | `reuse` 复用已有窗口；`new` 每次新开 |
-| `hiddenReloadMs` | `8000` | 标签隐藏多久后唤醒要刷新（毫秒；设置页按秒填写）；`0` 表示不自动刷新 |
-| `cooldownMs` | `1500` | 同一会话通知去抖（毫秒；设置页按秒填写） |
+| `hiddenReloadMs` | `8000` | 标签隐藏多久后唤醒要刷新（毫秒；设置页按秒填写）；`0` 关闭自动刷新，`-1` 无限 |
+| `settledMax` | `50` | 记住多少条「已用弹窗答过」的记录，用于回到窗口时自动关掉网页卡片；`0` 不记录，`-1` 不限 |
 | `sound` | 系统默认提示音 | 设为 `false` 静音 |
 | `choiceShellPath` | 自动 | 自制卡片使用的 PowerShell。默认优先 `pwsh` 7（启动更快），找不到时用 Windows PowerShell 5.1；可显式指定路径 |
 
