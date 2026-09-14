@@ -326,6 +326,20 @@ export function createSettledLog({ ttlMs = Infinity, max = 50, now = Date.now } 
   }
 }
 
+/**
+ * 空闲提醒里的「下一步」：把用户输入作为下一轮消息提交。
+ * 宿主 sessionController.prompt(request, signal) 第一行就是 signal.throwIfAborted()，
+ * 必须传 AbortSignal；漏传会抛 TypeError —— 卡片照样显示已提交，消息其实没发出去。
+ */
+export async function promptIdle(sessionController, record, text) {
+  return sessionController.prompt({
+    requestId: randomUUID(),
+    sessionId: record.sessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text }],
+  }, new AbortController().signal)
+}
+
 function toastInputText(url, extra = {}) {
   const keys = ['task', 'text', 'input.task', 'input_task']
   for (const key of keys) {
@@ -732,15 +746,6 @@ export function apply(ctx, config = {}) {
       return true
     }
     return false
-  }
-
-  async function promptIdle(sessionController, record, text) {
-    return sessionController.prompt({
-      requestId: randomUUID(),
-      sessionId: record.sessionId,
-      mode: 'queue',
-      content: [{ type: 'text', text }],
-    })
   }
 
   function normalizeAnswers(raw) {

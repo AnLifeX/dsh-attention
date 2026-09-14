@@ -27,6 +27,7 @@ import {
   createPendingDecision,
   createSettledLog,
   normalizeConfig,
+  promptIdle,
   publicConfig,
   sessionKindOf,
   shouldNotifySession,
@@ -453,6 +454,26 @@ test('normalizeConfig clamps the settled record limit', () => {
   assert.equal(normalizeConfig({ settledMax: 'nope' }).settledMax, 50)
   assert.equal(settledMaxOf(-5), -1)
   assert.equal(settledMaxOf(1e9), 1000000)
+})
+
+test('promptIdle hands the session controller an AbortSignal', async () => {
+  const calls = []
+  const controller = {
+    prompt(request, signal) {
+      // 宿主实现第一行就是 signal.throwIfAborted()：漏传 signal 会直接抛 TypeError
+      signal.throwIfAborted()
+      calls.push({ request, signal })
+      return { accepted: true }
+    },
+  }
+  const receipt = await promptIdle(controller, { sessionId: 's1' }, '下一步')
+  assert.equal(receipt.accepted, true)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].request.sessionId, 's1')
+  assert.equal(calls[0].request.mode, 'queue')
+  assert.equal(calls[0].request.content[0].text, '下一步')
+  assert.equal(typeof calls[0].signal?.throwIfAborted, 'function')
+  assert.equal(calls[0].signal.aborted, false)
 })
 
 test('publicConfig exposes UI fields and soundEnabled', () => {
