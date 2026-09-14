@@ -14,4 +14,3 @@
         cardOpacity: 0.78
         openSessionMode: reuse
         hiddenReloadMs: 8000
-        cooldownMs: 1500

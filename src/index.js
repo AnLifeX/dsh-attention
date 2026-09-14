@@ -527,14 +527,6 @@ export function apply(ctx, config = {}) {
     /* request.agent 和实时 session/status 仍会补齐；未知会话按不通知处理。 */
   }
 
-  const cooled = (key) => {
-    const now = Date.now()
-    const last = lastToastAt.get(key) ?? 0
-    if (now - last < cfg.cooldownMs) return true
-    lastToastAt.set(key, now)
-    return false
-  }
-
   const uiFocused = () => Date.now() - lastUiFocusedAt < cfg.presenceStaleMs
 
   const requestFocus = (sessionId) => {
@@ -568,7 +560,6 @@ export function apply(ctx, config = {}) {
     const kind = sessionKinds.rememberSession(session)
     if (!sessionId || !cfg.enabled || uiFocused()) return next()
     if (!shouldNotifySession(cfg, kind, 'approval')) return next()
-    if (cooled(`approval:${sessionId}`)) return next()
 
     const token = mintToken()
     const who = session ? resolveTitle(ctx, session) : `#${shortSessionId(sessionId)}`
@@ -612,7 +603,6 @@ export function apply(ctx, config = {}) {
     const kind = sessionKinds.rememberSession(session)
     if (!sessionId || !cfg.enabled || uiFocused()) return next()
     if (!shouldNotifySession(cfg, kind, 'question')) return next()
-    if (cooled(`question:${sessionId}`)) return next()
 
     const questions = Array.isArray(request.questions) ? request.questions : []
     const token = mintToken()
@@ -653,7 +643,6 @@ export function apply(ctx, config = {}) {
     const kind = sessionKinds.get(sessionId)
     if (!shouldNotifySession(cfg, kind, 'idle')) return
     const isSubagent = kind === 'subagent'
-    if (cooled(`idle:${sessionId}`)) return
 
     forgetIdleFor(sessionId)
     const token = mintToken()
@@ -1066,7 +1055,6 @@ export function apply(ctx, config = {}) {
   ctx.effect(() => () => {
     if (inboxTimer) clearInterval(inboxTimer)
     for (const token of [...byToken.keys()]) forgetToken(token)
-    lastToastAt.clear()
     runningBySession.clear()
     sessionKinds.clear()
   }, 'dsh-attention: dispose')
