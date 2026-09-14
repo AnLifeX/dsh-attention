@@ -54,10 +54,25 @@ const DEFAULT_CONFIG = {
   aumid: DEFAULT_AUMID,
   powershellPath: undefined,
   choiceShellPath: undefined,
-  cooldownMs: 1500,
   hiddenReloadMs: 8000,
+  settledMax: 50,
   presenceStaleMs: 5000,
   titlePrefix: 'dsh',
+}
+
+/** 毫秒类配置：0 = 关闭，-1 = 无限，正数取整；非法值回落默认。 */
+export function limitMsOf(value, fallback, maxMs = 86400000) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  if (n < 0) return -1
+  return Math.max(0, Math.min(maxMs, Math.floor(n)))
+}
+
+/** 已答记录条数：-1 = 不限条数，0 = 不记录（等于关掉自动关闭），其余取整数；非法值回落默认。 */
+export function settledMaxOf(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_CONFIG.settledMax
+  return Math.max(-1, Math.min(1000000, Math.floor(n)))
 }
 
 export function normalizeConfig(config) {
@@ -75,8 +90,8 @@ export function normalizeConfig(config) {
     : DEFAULT_CONFIG.cardOpacity
   cfg.openSessionMode = openSessionModeOf(cfg.openSessionMode)
   cfg.focusAfterReply = asBool(cfg.focusAfterReply, false)
-  cfg.cooldownMs = Math.max(0, Math.floor(Number(cfg.cooldownMs) || 0))
-  cfg.hiddenReloadMs = Math.max(0, Math.floor(Number(cfg.hiddenReloadMs) || 0))
+  cfg.hiddenReloadMs = limitMsOf(cfg.hiddenReloadMs, DEFAULT_CONFIG.hiddenReloadMs)
+  cfg.settledMax = settledMaxOf(cfg.settledMax)
   cfg.presenceStaleMs = Math.max(1000, Math.floor(Number(cfg.presenceStaleMs) || DEFAULT_CONFIG.presenceStaleMs))
   cfg.sound = soundOf(cfg.sound, DEFAULT_CONFIG.sound)
   cfg.choiceShellPath = typeof cfg.choiceShellPath === 'string' && cfg.choiceShellPath.trim()
@@ -277,6 +292,40 @@ export async function racePendingDecision(pending, next) {
   return Promise.race([delegated, native])
 }
 
+/**
+ * 原生卡已答记录：客户端轮询 /dsh-attention/focus 时取走，据此替 DSH 官方卡调用
+ * answer()。DSH 网关会把没被客户端结算的审批一直留着，并在事件流重连（标签页唤醒、
+ * 刷新）时重放给页面，所以记录默认永久保留（靠条数上限控内存，见 settledMax 配置）：
+ * 只要记录还在，隔多久回来卡片都能自动关上。
+ */
+export function createSettledLog({ ttlMs = Infinity, max = 50, now = Date.now } = {}) {
+  const entries = []
+  const limitOf = () => (typeof max === 'function' ? max() : max)
+  const prune = () => {
+    const cutoff = now() - ttlMs
+    while (entries.length && Number(entries[0].at ?? 0) < cutoff) entries.shift()
+    const limit = limitOf()
+    // -1 / Infinity = 不限条数；0 = 一条不留
+    if (Number.isFinite(limit) && limit >= 0 && entries.length > limit) {
+      entries.splice(0, entries.length - limit)
+    }
+  }
+  return {
+    /** 同一条记录重复写入时覆盖，避免客户端对同一张卡答两次。 */
+    push(entry) {
+      const index = entries.findIndex((item) => item.id === entry.id)
+      if (index >= 0) entries.splice(index, 1)
+      entries.push(entry)
+      prune()
+    },
+    list() {
+      prune()
+      return entries
+    },
+    get size() { return entries.length },
+  }
+}
+
 function toastInputText(url, extra = {}) {
   const keys = ['task', 'text', 'input.task', 'input_task']
   for (const key of keys) {
@@ -333,9 +382,8 @@ export function apply(ctx, config = {}) {
 
   /** token → 待处理项。审批 / 提问项持有 waterfall 的本地决议。 */
   const byToken = new Map()
-  const lastToastAt = new Map()
   const runningBySession = new Map()
-  const nativeSettled = []
+  const nativeSettled = createSettledLog({ max: () => cfg.settledMax })
   let lastUiFocusedAt = 0
   let lastUiTitle = ''
   let lastUiTheme = 'light'
@@ -382,16 +430,9 @@ export function apply(ctx, config = {}) {
         : {}),
       at: Date.now(),
     })
-    const cutoff = Date.now() - 30000
-    while (nativeSettled.length && nativeSettled[0].at < cutoff) nativeSettled.shift()
-    if (nativeSettled.length > 20) nativeSettled.splice(0, nativeSettled.length - 20)
   }
 
-  const recentNativeSettled = () => {
-    const cutoff = Date.now() - 30000
-    while (nativeSettled.length && nativeSettled[0].at < cutoff) nativeSettled.shift()
-    return nativeSettled
-  }
+  const recentNativeSettled = () => nativeSettled.list()
 
   const runtimePort = () => {
     try { return Number(new URL(runtimeWebUrl).port) || 0 } catch { return 0 }

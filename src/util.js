@@ -106,11 +106,12 @@ export function soundOf(value, fallback = DEFAULT_SOUND) {
   return fallback
 }
 
-/** 通知停留秒数。0 = 一直留到关掉；上限一天。 */
+/** 通知停留秒数。-1 = 无限（一直留到关掉），0 = 关闭自动消失（效果同上），上限一天。 */
 export function notifyTimeoutSecOf(value) {
   if (value === false || value === null) return 0
   const n = Math.floor(Number(value))
-  if (!Number.isFinite(n) || n < 0) return 30
+  if (!Number.isFinite(n)) return 30
+  if (n < 0) return -1
   return Math.min(n, 86400)
 }
 

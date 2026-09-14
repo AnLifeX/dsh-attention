@@ -25,15 +25,17 @@ import {
 import {
   createSessionKindTracker,
   createPendingDecision,
+  createSettledLog,
   normalizeConfig,
   publicConfig,
   sessionKindOf,
   shouldNotifySession,
   racePendingDecision,
+  settledMaxOf,
   webServerUrl,
 } from '../src/index.js'
 import { protocolUri, parseProtocolUri } from '../src/protocol.js'
-import { pickUiFields, sanitizeUiPatch } from '../src/persist.js'
+import { migrateUiOverlay, pickUiFields, sanitizeUiPatch, UI_SCHEMA_VERSION } from '../src/persist.js'
 
 test('xmlEscape covers markup', () => {
   assert.equal(xmlEscape(`a&b<c>"'`), 'a&amp;b&lt;c&gt;&quot;&apos;')
@@ -233,6 +235,27 @@ test('immediate mode lets the existing web answerer win the decision race', asyn
   })
 })
 
+test('settled log keeps a native decision long enough for a sleeping tab', () => {
+  let now = 1_000_000
+  const log = createSettledLog({ ttlMs: 30_000, max: 10, now: () => now })
+  log.push({ id: 't1', sessionId: 's1', at: now })
+  now += 25_000
+  assert.equal(log.list().length, 1)
+  now += 10_000
+  assert.equal(log.list().length, 0)
+})
+
+test('settled log dedupes by id and caps its size', () => {
+  const now = 5_000
+  const log = createSettledLog({ ttlMs: 60_000, max: 2, now: () => now })
+  log.push({ id: 'a', at: now })
+  log.push({ id: 'a', at: now })
+  assert.equal(log.list().length, 1)
+  log.push({ id: 'b', at: now })
+  log.push({ id: 'c', at: now })
+  assert.deepEqual(log.list().map((item) => item.id), ['b', 'c'])
+})
+
 test('aborting a pending native decision rejects as AbortError', async () => {
   const controller = new AbortController()
   const pending = createPendingDecision(controller.signal)
@@ -280,10 +303,8 @@ test('subagents can only emit the independently controlled idle notification', (
   assert.equal(shouldNotifySession(defaults, 'unknown', 'idle'), false)
 })
 
-test('normalizeConfig preserves zero wake reload and cooldown values', () => {
-  const cfg = normalizeConfig({ hiddenReloadMs: 0, cooldownMs: 0 })
-  assert.equal(cfg.hiddenReloadMs, 0)
-  assert.equal(cfg.cooldownMs, 0)
+test('normalizeConfig preserves a zero wake reload value', () => {
+  assert.equal(normalizeConfig({ hiddenReloadMs: 0 }).hiddenReloadMs, 0)
 })
 
 test('normalizeConfig parses notifyTimeoutSec', () => {
@@ -365,6 +386,75 @@ test('sanitizeUiPatch drops empty and unknown fields', () => {
   assert.deepEqual(sanitizeUiPatch({ soundEnabled: false, enabled: undefined }), { soundEnabled: false })
 })
 
+test('settled log keeps records forever by default', () => {
+  const log = createSettledLog({ now: () => 5_000 })
+  log.push({ id: 'old', at: 0 })
+  assert.equal(log.list().length, 1)
+})
+
+test('settled log honours 0 and -1 limits', () => {
+  const now = 1_000
+  const unlimited = createSettledLog({ max: -1, now: () => now })
+  for (let i = 0; i < 80; i += 1) unlimited.push({ id: `k${i}`, at: now })
+  assert.equal(unlimited.list().length, 80)
+
+  const none = createSettledLog({ max: 0, now: () => now })
+  none.push({ id: 'a', at: now })
+  assert.equal(none.list().length, 0)
+})
+
+test('settled log can read a live limit', () => {
+  let limit = 2
+  const now = 1_000
+  const log = createSettledLog({ max: () => limit, now: () => now })
+  log.push({ id: 'a', at: now })
+  log.push({ id: 'b', at: now })
+  log.push({ id: 'c', at: now })
+  assert.deepEqual(log.list().map((item) => item.id), ['b', 'c'])
+  limit = -1
+  log.push({ id: 'd', at: now })
+  assert.equal(log.list().length, 3)
+})
+
+test('legacy zero limits migrate to -1 exactly once', () => {
+  const legacy = { notifyTimeoutSec: 0, hiddenReloadMs: 0, cardOpacity: 0.5 }
+  const first = migrateUiOverlay(legacy)
+  assert.equal(first.migrated, true)
+  assert.equal(first.overlay.notifyTimeoutSec, -1)
+  assert.equal(first.overlay.hiddenReloadMs, -1)
+  assert.equal(first.overlay.cardOpacity, 0.5)
+  assert.equal(first.overlay.schemaVersion, UI_SCHEMA_VERSION)
+
+  const second = migrateUiOverlay(first.overlay)
+  assert.equal(second.migrated, false)
+  assert.equal(second.overlay.notifyTimeoutSec, -1)
+})
+
+test('a zero written after the upgrade stays zero', () => {
+  const fresh = migrateUiOverlay({ schemaVersion: UI_SCHEMA_VERSION, hiddenReloadMs: 0, notifyTimeoutSec: 0 })
+  assert.equal(fresh.migrated, false)
+  assert.equal(fresh.overlay.hiddenReloadMs, 0)
+  assert.equal(fresh.overlay.notifyTimeoutSec, 0)
+})
+
+test('normalizeConfig accepts -1 as unlimited', () => {
+  assert.equal(normalizeConfig({ notifyTimeoutSec: -1 }).notifyTimeoutSec, -1)
+  assert.equal(normalizeConfig({ hiddenReloadMs: -1 }).hiddenReloadMs, -1)
+  assert.equal(normalizeConfig({ hiddenReloadMs: -5 }).hiddenReloadMs, -1)
+  assert.equal(notifyTimeoutSecOf(-1), -1)
+  assert.equal(notifyTimeoutSecOf(-100), -1)
+})
+
+test('normalizeConfig clamps the settled record limit', () => {
+  assert.equal(normalizeConfig({}).settledMax, 50)
+  assert.equal(normalizeConfig({ settledMax: 0 }).settledMax, 0)
+  assert.equal(normalizeConfig({ settledMax: -1 }).settledMax, -1)
+  assert.equal(normalizeConfig({ settledMax: '12' }).settledMax, 12)
+  assert.equal(normalizeConfig({ settledMax: 'nope' }).settledMax, 50)
+  assert.equal(settledMaxOf(-5), -1)
+  assert.equal(settledMaxOf(1e9), 1000000)
+})
+
 test('publicConfig exposes UI fields and soundEnabled', () => {
   const cfg = normalizeConfig({ sound: false, focusAfterReply: true })
   const pub = publicConfig(cfg)
@@ -374,7 +464,6 @@ test('publicConfig exposes UI fields and soundEnabled', () => {
   assert.equal(Object.hasOwn(pub, 'webUrl'), false)
   assert.deepEqual(Object.keys(pickUiFields(cfg)).sort(), [
     'cardOpacity',
-    'cooldownMs',
     'enabled',
     'focusAfterReply',
     'hiddenReloadMs',
@@ -385,6 +474,7 @@ test('publicConfig exposes UI fields and soundEnabled', () => {
     'notifySubagentIdle',
     'notifyTimeoutSec',
     'openSessionMode',
+    'settledMax',
     'sound',
   ])
 })
