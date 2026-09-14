@@ -564,6 +564,7 @@ $script:busy = $false
 $script:picked = @{}
 $script:questions = @()
 $script:customBoxes = @{}
+$script:optButtons = @{}
 $script:idleBox = $null
 
 $wa = [System.Windows.SystemParameters]::WorkArea
@@ -793,6 +794,7 @@ if ($kind -eq 'question') {
   foreach ($q in $script:questions) {
     $qid = [string]$q.id
     $script:picked[$qid] = New-Object System.Collections.ArrayList
+    $script:optButtons[$qid] = New-Object System.Collections.ArrayList
     if ($script:questions.Count -gt 1 -and [string]$q.question -ne $title) {
       $qh = New-Object System.Windows.Controls.TextBlock
       $qh.Text = [string]$q.question
@@ -811,6 +813,7 @@ if ($kind -eq 'question') {
       $btn.Margin = New-Object System.Windows.Thickness 0, 0, 0, 8
       $btn.HorizontalAlignment = 'Stretch'
       $btn.Tag = @{ qid = $qid; label = $label; multi = $multi; on = $false }
+      [void]$script:optButtons[$qid].Add($btn)
       $btn.Add_Click({
         try {
           if ($script:busy) { return }
@@ -826,6 +829,18 @@ if ($kind -eq 'question') {
               [void]$script:picked[$qid].Add($label)
               $this.Background = $brChipOn
               $this.Foreground = $brFg
+            }
+            return
+          }
+          # Multi-question card: a single-select click only records the choice for that
+          # question (replacing its previous one); the Submit button then sends every
+          # answer together. Submitting here would close the window and skip the rest.
+          if ($script:questions.Count -gt 1) {
+            [void]$script:picked[$qid].Clear()
+            [void]$script:picked[$qid].Add($label)
+            foreach ($b in @($script:optButtons[$qid])) {
+              $b.Background = if ($b -eq $this) { $brChipOn } else { $brChip }
+              $b.Foreground = $brFg
             }
             return
           }
