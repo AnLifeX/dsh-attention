@@ -17,6 +17,7 @@ window.__ModuleLoader__.load({
 		try { react = require("react"); } catch { react = null; }
 
 		const STORAGE_KEY = "dsh-attention:reload-lock";
+		const IS_DESKTOP = location.protocol === "dsh-app:";
 		const DEFAULT_HIDDEN_RELOAD_MS = 8000;
 		const CLOCK_JUMP_MS = 45000;
 		const HEARTBEAT_MS = 4000;
@@ -39,6 +40,7 @@ window.__ModuleLoader__.load({
 			notifyStyle: "卡片样式",
 			styleSystem: "系统通知卡片",
 			styleSystemHint: "只支持点一下打开会话，由系统交给浏览器处理，不能复用已打开的 Edge 应用。不能在通知里选择、回复或提权。",
+			styleSystemDesktopHint: "点击唤回桌面窗口并切到会话。不能在系统通知里选择、回复或提权。",
 			styleCustom: "自制卡片",
 			styleCustomHint: "右下角窗口。支持单选、多选、自定义输入、提权允许/拒绝，以及一轮结束后写下一步。卡片上的「回到会话」按提醒范围里的复用 / 新开设置执行。",
 			notifyApproval: "提权审批",
@@ -48,6 +50,7 @@ window.__ModuleLoader__.load({
 			soundEnabled: "提示音",
 			openSessionMode: "回到会话",
 			openSessionModeHint: "建议把 dsh 安装成 Edge 应用后选「复用已有窗口」；在普通浏览器标签里请选「新开」。",
+			desktopOpenHint: "已识别官方桌面版：回到会话会唤回桌面窗口，并切到对应会话。",
 			openReuse: "复用已有窗口",
 			openReuseHint: "前置已经打开的 dsh 应用或窗口，并切到对应会话。Edge 应用下最稳。",
 			openNew: "新开一个",
@@ -87,6 +90,7 @@ window.__ModuleLoader__.load({
 			notifyStyle: "Card style",
 			styleSystem: "System toast",
 			styleSystemHint: "Tap to open the session in the browser. Cannot reuse an already-open Edge app. No in-toast choices, replies, or approvals.",
+			styleSystemDesktopHint: "Tap to restore Desktop and select the session. No in-toast choices, replies, or approvals.",
 			styleCustom: "Custom card",
 			styleCustomHint: "A bottom-right window for single-select, multi-select, custom answers, allow/deny, and a next-step prompt when a turn ends. Return to session follows the setting under Notification scope.",
 			notifyApproval: "Sandbox approvals",
@@ -96,6 +100,7 @@ window.__ModuleLoader__.load({
 			soundEnabled: "Sound",
 			openSessionMode: "Return to session",
 			openSessionModeHint: "If dsh is installed as an Edge app, choose Reuse existing window. In a normal browser tab, choose Open new.",
+			desktopOpenHint: "Official Desktop detected: return to session restores the desktop window and selects the session.",
 			openReuse: "Reuse existing window",
 			openReuseHint: "Bring the already-open dsh app or window to the front and switch to that session. Most reliable as an Edge app.",
 			openNew: "Open new",
@@ -178,6 +183,7 @@ window.__ModuleLoader__.load({
 		}
 
 		function isStandaloneApp() {
+			if (IS_DESKTOP) return true;
 			if (typeof window === "undefined") return false;
 			try {
 				if (window.matchMedia("(display-mode: standalone)").matches) return true;
@@ -250,8 +256,10 @@ window.__ModuleLoader__.load({
 			}).catch(() => {});
 		}
 
-		function currentSessionId(sessions) {
+		function currentSessionId(sessions, uiSession) {
 			try {
+				const current = uiSession?.adapter?.current?.getSnapshot?.();
+				if (current) return current.key || "";
 				const snap = sessions?.list?.getSnapshot?.();
 				return snap?.current || "";
 			} catch {
@@ -291,13 +299,15 @@ window.__ModuleLoader__.load({
 			return id;
 		}
 
-		function openSession(sessions, sessionId) {
-			if (!sessionId || !sessions || typeof sessions.open !== "function") return false;
+		function openSession(sessions, sessionId, uiWorkspace) {
+			if (!sessionId) return false;
 			try {
-				sessions.open(sessionId);
+				if (typeof uiWorkspace?.openSession === "function") uiWorkspace.openSession(sessionId);
+				else if (typeof sessions?.open === "function") sessions.open(sessionId);
+				else return false;
 				return true;
 			} catch {
-				try { sessions.open(sessionId); return true; } catch { return false; }
+				return false;
 			}
 		}
 
@@ -394,6 +404,7 @@ window.__ModuleLoader__.load({
 			}
 			if (record.kind === "question") {
 				if (interaction.kind !== "question" && interaction.kind !== "plan-review") return false;
+				if (record.callId !== undefined && interaction.callId !== record.callId) return false;
 				return sameQuestionIds(interaction.questions, record.questionIds);
 			}
 			return false;
@@ -401,7 +412,11 @@ window.__ModuleLoader__.load({
 
 		/** 读一次待处理交互快照。 */
 		function pendingSnapshotOf(uiSession) {
-			try { return uiSession?.pendingInteractions?.getSnapshot() ?? null; } catch { return null; }
+			try {
+				const status = uiSession?.sessionStatus?.getSnapshot();
+				if (status) return new Map(Array.from(status, ([id, value]) => [id, value.pendingInteraction]));
+				return uiSession?.pendingInteractions?.getSnapshot() ?? null;
+			} catch { return null; }
 		}
 
 		/** 每次看到卡片都盖一次「首次出现」时间；缺 callId 的审批兜底匹配靠它避免误答。 */
@@ -419,7 +434,6 @@ window.__ModuleLoader__.load({
 		 * 卡片注册瞬间就会同步跑一次 —— React 往往还没绘制就答完了，正常路径看不到闪。
 		 */
 		function applyNativeSettled(uiSession) {
-			if (!uiSession?.pendingInteractions) return;
 			const snapshot = noteSeenInteractions(uiSession);
 			if (!snapshot || snapshot.size === 0 || settledLog.length === 0) return;
 			for (const record of settledLog) {
@@ -431,17 +445,20 @@ window.__ModuleLoader__.load({
 				try {
 					// answer() 在交互已结算时会同步抛错：必须就地兜住，否则一条过期记录
 					// 就能打断整批处理（原来靠 Promise.resolve(...).catch 是拦不住的）。
-					Promise.resolve(interaction.answer(record.value)).catch(() => {});
+					Promise.resolve(interaction.answer(record.value)).catch(() => {
+						// 新卡发布时答题通道可能尚未挂好，下次轮询再试。
+						settledApplied.delete(record.id);
+					});
 				} catch { /* 已结算，跳过 */ }
 			}
 		}
 
-		function consumeFocus(sessions, uiSession) {
+		function consumeFocus(sessions, uiSession, uiWorkspace) {
 			fetch("/dsh-attention/focus", { cache: "no-store" })
 				.then((response) => response.json())
 				.then((data) => {
 					const sessionId = data?.sessionId;
-					if (sessionId) openSession(sessions, sessionId);
+					if (sessionId && currentSessionId(sessions, uiSession) !== sessionId) openSession(sessions, sessionId, uiWorkspace);
 					rememberSettled(data?.settled);
 					applyNativeSettled(uiSession);
 				})
@@ -520,7 +537,7 @@ window.__ModuleLoader__.load({
 		function StyleChoice({ t, value, disabled, onChange, name }) {
 			const current = value === "system" ? "system" : "custom";
 			const options = [
-				{ id: "system", labelKey: "styleSystem", hintKey: "styleSystemHint" },
+				{ id: "system", labelKey: "styleSystem", hintKey: IS_DESKTOP ? "styleSystemDesktopHint" : "styleSystemHint" },
 				{ id: "custom", labelKey: "styleCustom", hintKey: "styleCustomHint" }
 			];
 			return react.createElement("div", { className: "dshatt_row dshatt_row_stack" }, [
@@ -868,7 +885,7 @@ window.__ModuleLoader__.load({
 						react.createElement(ToggleRow, { t, key: "idle", labelKey: "notifyIdle", checked: scopeView.notifyIdle !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyIdle: v }) }),
 						react.createElement(ToggleRow, { t, key: "subidle", labelKey: "notifySubagentIdle", checked: scopeView.notifySubagentIdle === true, disabled: off, onChange: (v) => patchCard("scope", { notifySubagentIdle: v }) }),
 						react.createElement(ToggleRow, { t, key: "snd", labelKey: "soundEnabled", checked: scopeView.soundEnabled !== false, disabled: off, onChange: (v) => patchCard("scope", { soundEnabled: v }) }),
-						appearanceView.notifyStyle === "system" ? null : react.createElement(OpenSessionChoice, {
+						IS_DESKTOP ? react.createElement("p", { className: "dshatt_hint", key: "desktop-open" }, t("desktopOpenHint")) : appearanceView.notifyStyle === "system" ? null : react.createElement(OpenSessionChoice, {
 							t,
 							key: "openmode",
 							name: openModeName,
@@ -936,7 +953,7 @@ window.__ModuleLoader__.load({
 						onDiscard: () => discardCard("wake"),
 						onSave: () => saveCard("wake", WAKE_KEYS)
 					}, [
-						react.createElement(FieldRow, { t, key: "hid", labelKey: "hiddenReloadSec", hintKey: "hiddenReloadSecHint" },
+						IS_DESKTOP ? null : react.createElement(FieldRow, { t, key: "hid", labelKey: "hiddenReloadSec", hintKey: "hiddenReloadSecHint" },
 							react.createElement("input", {
 								className: "dshatt_input",
 								type: "number",
@@ -1023,9 +1040,9 @@ window.__ModuleLoader__.load({
 			]);
 		}
 
-		function makeSection(ctx) {
+		function makeSection(locale) {
 			return function AttentionSection() {
-				const t = ctx.locale.bind(NS);
+				const t = locale.bind(NS);
 				return react.createElement(SettingsPage, { t });
 			};
 		}
@@ -1057,23 +1074,23 @@ window.__ModuleLoader__.load({
 			return () => observer.disconnect();
 		}
 
-		function startWake(ctx) {
+		function startWake(ctx, sessions, uiSession) {
 			let hiddenAt = 0;
 			let lastBeat = Date.now();
 			let lastInputAt = 0;
 			let hiddenReloadMs = DEFAULT_HIDDEN_RELOAD_MS;
 			let disposed = false;
-			let sessions = ctx.sessions;
+			let uiWorkspace = null;
 			let pendingSession = "";
 			try { pendingSession = takeFocusHash(); } catch { pendingSession = ""; }
 			try { window.name = FOCUS_WINDOW_NAME; } catch { /* ignore */ }
 
 			const applyFocus = (sessionId) => {
-				if (!sessionId) return;
+				if (disposed || !sessionId) return;
 				pendingSession = sessionId;
-				openSession(sessions, sessionId);
+				if (currentSessionId(sessions, uiSession) !== sessionId) openSession(sessions, sessionId, uiWorkspace);
 				try {
-					if (sessions?.list?.getSnapshot?.()?.current === sessionId) pendingSession = "";
+					if (currentSessionId(sessions, uiSession) === sessionId) pendingSession = "";
 				} catch { /* keep retrying */ }
 			};
 
@@ -1109,7 +1126,7 @@ window.__ModuleLoader__.load({
 			window.addEventListener("dsh-attention-config", onConfig);
 
 			const maybeReload = (reason) => {
-				if (disposed) return;
+				if (disposed || IS_DESKTOP) return;
 				if (hiddenReloadMs <= 0) {
 					console.info("[dsh-attention] skip reload, wake reload is disabled:", reason);
 					return;
@@ -1122,23 +1139,24 @@ window.__ModuleLoader__.load({
 			};
 
 			const consume = () => {
+				if (disposed) return;
 				if (pendingSession) applyFocus(pendingSession);
-				applyNativeSettled(ctx.uiSession);
-				consumeFocus(sessions, ctx.uiSession);
+				applyNativeSettled(uiSession);
+				consumeFocus(sessions, uiSession, uiWorkspace);
 			};
 
 			// 官方卡被注册时（正常出现，或网关在重连后重放）立刻消费本地缓存，不等下一次轮询。
 			let stopSettledWatch = () => {};
 			try {
-				const pending = ctx.uiSession?.pendingInteractions;
+				const pending = uiSession?.sessionStatus ?? uiSession?.pendingInteractions;
 				if (pending && typeof pending.subscribe === "function") {
-					stopSettledWatch = pending.subscribe(() => { applyNativeSettled(ctx.uiSession); }) ?? stopSettledWatch;
+					stopSettledWatch = pending.subscribe(() => { applyNativeSettled(uiSession); }) ?? stopSettledWatch;
 				}
 			} catch { stopSettledWatch = () => {}; }
 
 			const onVisibility = () => {
 				ensureTitleMark();
-				postPresence(currentSessionId(sessions));
+				postPresence(currentSessionId(sessions, uiSession));
 				if (document.visibilityState === "hidden") {
 					hiddenAt = Date.now();
 					return;
@@ -1154,7 +1172,7 @@ window.__ModuleLoader__.load({
 
 			const onFreeze = () => { hiddenAt = Date.now(); };
 			const onResume = () => {
-				postPresence(currentSessionId(sessions));
+				postPresence(currentSessionId(sessions, uiSession));
 				consume();
 				const elapsed = hiddenAt > 0 ? Date.now() - hiddenAt : 0;
 				hiddenAt = 0;
@@ -1166,11 +1184,11 @@ window.__ModuleLoader__.load({
 
 			const onWindowFocus = () => {
 				ensureTitleMark();
-				postPresence(currentSessionId(sessions));
+				postPresence(currentSessionId(sessions, uiSession));
 				consume();
 			};
 			const onWindowBlur = () => {
-				postPresence(currentSessionId(sessions));
+				postPresence(currentSessionId(sessions, uiSession));
 			};
 
 			document.addEventListener("visibilitychange", onVisibility);
@@ -1192,14 +1210,14 @@ window.__ModuleLoader__.load({
 
 			const presenceTimer = setInterval(() => {
 				ensureTitleMark();
-				postPresence(currentSessionId(sessions));
+				postPresence(currentSessionId(sessions, uiSession));
 			}, PRESENCE_MS);
 
 			let stopThemeWatch = () => {};
 			try {
 				if (typeof MutationObserver === "function" && document.body) {
 					const themeObs = new MutationObserver(() => {
-						postPresence(currentSessionId(sessions));
+						postPresence(currentSessionId(sessions, uiSession));
 					});
 					themeObs.observe(document.body, {
 						attributes: true,
@@ -1214,8 +1232,7 @@ window.__ModuleLoader__.load({
 			}, FOCUS_POLL_MS);
 
 			ensureTitleMark();
-			postPresence(currentSessionId(sessions));
-			consume();
+			postPresence(currentSessionId(sessions, uiSession));
 
 			void readConfig().then(applyHiddenReload);
 
@@ -1238,41 +1255,35 @@ window.__ModuleLoader__.load({
 				document.removeEventListener("keydown", onInput, true);
 			};
 
-			const bindSessions = (value) => {
-				if (value) sessions = value;
-				if (pendingSession) applyFocus(pendingSession);
-			};
-
-			try {
-				if (ctx && typeof ctx.inject === "function") {
-					ctx.inject(["sessions"], (scope) => {
-						bindSessions(scope.sessions || ctx.sessions);
-					});
-				} else {
-					bindSessions(ctx.sessions);
-				}
-			} catch {
-				bindSessions(ctx.sessions);
-			}
-
 			if (ctx && typeof ctx.effect === "function") {
 				ctx.effect(() => dispose, "dsh-attention: wake");
 			}
+			try {
+				if (typeof ctx.inject === "function") {
+					ctx.inject(["uiWorkspace"], (scope) => {
+						uiWorkspace = scope.uiWorkspace;
+						scope.effect(() => () => { uiWorkspace = null; }, "dsh-attention: navigation");
+					});
+				}
+			} catch { /* 旧版仍使用 sessions.open */ }
+			consume();
+
 		}
 
 		function apply(ctx) {
+			const { sessions, uiSession, slots, locale } = ctx;
 			installStyles();
-			startWake(ctx);
-			if (!react || !ctx?.slots || !ctx?.locale) return;
-			ctx.effect(() => ctx.locale.register(NS, { zh, en }), "dsh-attention: dictionaries");
+			startWake(ctx, sessions, uiSession);
+			if (!react || !slots || !locale) return;
+			ctx.effect(() => locale.register(NS, { zh, en }), "dsh-attention: dictionaries");
 			ctx.effect(() => startSettingsNavIconSync(), "dsh-attention: settings nav icon");
-			ctx.slots.inject("settings.section", () => ctx.slots.register({
+			slots.inject("settings.section", () => slots.register({
 				name: "settings.section",
 				id: "dsh-attention",
 				order: 1100,
-				label: () => ctx.locale.bind(NS)("nav"),
+				label: () => locale.bind(NS)("nav"),
 				locale: NS
-			}, makeSection(ctx)));
+			}, makeSection(locale)));
 		}
 
 		exports.apply = apply;

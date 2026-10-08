@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url'
 
 export const workDir = () => join(homedir(), '.dsh', 'dsh-attention-work')
 
-export function inboxPath() {
-  return join(workDir(), 'inbox.jsonl')
+export function inboxPath(port) {
+  return join(workDir(), port ? `inbox-${port}.jsonl` : 'inbox.jsonl')
 }
 
 export function pendingPath(token) {
@@ -59,9 +59,9 @@ export function parseInboxText(text) {
   return jobs
 }
 
-export function drainInbox() {
-  const path = inboxPath()
-  const tmp = join(workDir(), `inbox-taking-${Date.now()}.jsonl`)
+export function drainInbox(port) {
+  const path = inboxPath(port)
+  const tmp = join(workDir(), `inbox-taking-${port || 'legacy'}-${Date.now()}.jsonl`)
   try {
     renameSync(path, tmp)
   } catch {

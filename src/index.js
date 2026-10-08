@@ -136,8 +136,7 @@ function htmlPage(title, body) {
 }
 
 /** Toast 的 http 回退。reuse 尽量关掉多余标签并切到已有窗口；new 就留在这次打开的标签里。 */
-function htmlOpenSession(webUrl, sessionId, mode = 'reuse') {
-  const dest = sessionFocusUrl(webUrl, sessionId)
+function htmlOpenSession(dest, sessionId, mode = 'reuse') {
   const reuse = mode !== 'new'
   return `<!doctype html><meta charset="utf-8"><title>dsh</title>
 <body style="font-family:sans-serif;padding:24px">
@@ -211,6 +210,16 @@ export function webServerUrl(webServer) {
   return Number.isSafeInteger(port) && port > 0 && port <= 65535
     ? `http://127.0.0.1:${port}`
     : DEFAULT_WEB_URL
+}
+
+export function runtimePlatformOf(ctx) {
+  return ctx.profileContext?.name === 'desktop' ? 'desktop' : 'web'
+}
+
+export function sessionOpenUrl(platform, webUrl, sessionId, connection) {
+  if (platform === 'desktop') return 'dsh://open'
+  const base = connection?.authenticatedUrl?.(webUrl) ?? webUrl
+  return sessionFocusUrl(base, sessionId)
 }
 
 export function shouldNotifySession(cfg, sessionKind, eventKind) {
@@ -390,9 +399,15 @@ function resolveTitle(ctx, session) {
 
 export function apply(ctx, config = {}) {
   const cfg = normalizeConfig({ ...config, ...readUiOverlay() })
+  const platform = runtimePlatformOf(ctx)
   const choiceShellPath = cfg.choiceShellPath || findPwsh() || powershell51()
   let runtimeWebUrl = DEFAULT_WEB_URL
-  const runtimeConfig = () => ({ ...cfg, webUrl: runtimeWebUrl })
+  let connection = null
+  const runtimeConfig = () => ({ ...cfg, webUrl: runtimeWebUrl, platform })
+  ctx.inject(['connection'], (scope) => {
+    connection = scope.connection
+    scope.effect(() => () => { connection = null }, 'dsh-attention: authenticated links')
+  })
 
   /** token → 待处理项。审批 / 提问项持有 waterfall 的本地决议。 */
   const byToken = new Map()
@@ -488,9 +503,11 @@ export function apply(ctx, config = {}) {
       timeoutSec: cfg.notifyTimeoutSec,
       cardOpacity: cfg.cardOpacity,
       webUrl: runtimeWebUrl,
-      openUrl: sessionFocusUrl(runtimeWebUrl, sessionId),
-      openSessionMode: cfg.openSessionMode,
-      reuseSession: cfg.openSessionMode !== 'new',
+      platform,
+      port: runtimePort(),
+      openUrl: sessionOpenUrl(platform, runtimeWebUrl, sessionId, connection),
+      openSessionMode: platform === 'desktop' ? 'reuse' : cfg.openSessionMode,
+      reuseSession: platform === 'desktop' || cfg.openSessionMode !== 'new',
       playSound: Boolean(cfg.sound),
       windowTitle: lastUiTitle,
       appTitle: 'DeepSeek Harness',
@@ -559,7 +576,7 @@ export function apply(ctx, config = {}) {
       timeoutSec: cfg.notifyTimeoutSec,
       ...toastChrome(),
       actions: [
-        { label: '打开会话', url: httpOpenUrl(token) },
+        { label: '打开会话', url: platform === 'desktop' ? openUrl(token) : httpOpenUrl(token) },
       ],
     })
     fireToast(ctx, cfg, xml)
@@ -671,6 +688,7 @@ export function apply(ctx, config = {}) {
       token,
       sessionId,
       questions,
+      ...(request.callId !== undefined ? { callId: request.callId } : {}),
       optionActions,
       createdAt: Date.now(),
     }, request.signal)
@@ -762,7 +780,7 @@ export function apply(ctx, config = {}) {
     if (!record) return { ok: false, error: 'expired' }
     if (action === 'open') {
       requestFocus(record.sessionId)
-      return { ok: true, action: 'open', focus: true, sessionId: record.sessionId, message: '请使用原来的 dsh 窗口继续' }
+      return { ok: true, action: 'open', focus: true, platform, openUrl: sessionOpenUrl(platform, runtimeWebUrl, record.sessionId, connection), sessionId: record.sessionId, message: '请使用原来的 dsh 窗口继续' }
     }
     if (action === 'compose') {
       openChoiceWindow(token)
@@ -841,7 +859,7 @@ export function apply(ctx, config = {}) {
     runtimeWebUrl = webServerUrl(webServer)
     registerProtocol(runtimeConfig(), ctx.logger)
     inboxTimer = setInterval(() => {
-      for (const job of drainInbox()) {
+      for (const job of drainInbox(runtimePort())) {
         const token = String(job?.t ?? '')
         const action = String(job?.a ?? '')
         if (!token || !action) continue
@@ -1084,12 +1102,8 @@ export function apply(ctx, config = {}) {
         }
 
         if (action === 'open') {
-          reply(req, res, 200, {
-            ok: true,
-            action: 'open',
-            focus: true,
-            sessionId: result.sessionId,
-          }, htmlOpenSession(runtimeWebUrl, result.sessionId, cfg.openSessionMode))
+          reply(req, res, 200, result, htmlOpenSession(result.openUrl, result.sessionId,
+            platform === 'desktop' ? 'new' : cfg.openSessionMode))
           return
         }
 

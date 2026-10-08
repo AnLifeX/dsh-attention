@@ -263,17 +263,28 @@ if ($result -and $result.focus -eq $true) { $wantFocus = $true }
 elseif ($action -eq 'open' -or -not $action) { $wantFocus = $true }
 
 $openUrl = $webUrl
-if ($result -and $result.sessionId) {
+if ($result -and $result.openUrl) {
+  $openUrl = [string]$result.openUrl
+} elseif ($result -and $result.sessionId) {
   $openUrl = $webUrl.TrimEnd('/') + '/#dsh-attention=' + [Uri]::EscapeDataString([string]$result.sessionId)
 }
 
 $mode = Get-OpenSessionMode
+$desktop = $result -and $result.platform -eq 'desktop'
+if (-not $result) {
+  $config = Get-HandlerConfig
+  $desktop = $config -and $config.platform -eq 'desktop' -and ([string]$config.webUrl).TrimEnd('/') -eq $webUrl
+}
 if ($wantFocus) {
-  if ($mode -eq 'new') {
-    Write-ActLog ('open-new url=' + $openUrl)
+  if ($desktop) {
+    # Do not start the registered Electron app in the Host's inherited Node mode.
+    $env:ELECTRON_RUN_AS_NODE = $null
+    Start-Process 'dsh://open' | Out-Null
+  } elseif ($mode -eq 'new') {
+    Write-ActLog 'open-new'
     Start-Process $openUrl | Out-Null
   } else {
-    Write-ActLog ('open-reuse url=' + $openUrl)
+    Write-ActLog 'open-reuse'
     Focus-DshWindow $webUrl $openUrl -ReuseOnly | Out-Null
   }
 }

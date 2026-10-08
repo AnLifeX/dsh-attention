@@ -140,6 +140,9 @@ if (-not (Test-Path -LiteralPath $pendingFile)) {
 
 $raw = [System.IO.File]::ReadAllText($pendingFile, [System.Text.Encoding]::UTF8)
 $data = $raw | ConvertFrom-Json
+if ($data.port -ge 1 -and $data.port -le 65535) {
+  $inboxFile = Join-Path $work ('inbox-' + [int]$data.port + '.jsonl')
+}
 $labels = $data.labels
 if (-not $labels) { $labels = [pscustomobject]@{} }
 $kind = [string]$data.kind
@@ -728,7 +731,7 @@ function Open-NewSessionUrl {
   if (-not $url) { $url = [string]$data.webUrl }
   if (-not $url) { $url = 'http://127.0.0.1:3080' }
   Start-Process $url | Out-Null
-  Write-ActLog ('open-new url=' + $url)
+  Write-ActLog 'open-new'
 }
 
 function Test-ReuseSession {
@@ -742,6 +745,14 @@ function Open-ExistingSession {
   try {
     Write-Inbox @{ t = $Token; a = 'open' }
     $script:window.Topmost = $false
+    if ([string]$data.platform -eq 'desktop') {
+      # The Electron Host passes Node mode to child processes; the desktop launcher must run as an app.
+      $env:ELECTRON_RUN_AS_NODE = $null
+      Start-Process 'dsh://open' | Out-Null
+      $script:window.Hide()
+      Close-Soon
+      return
+    }
     if (-not (Test-ReuseSession)) {
       Open-NewSessionUrl
       $script:window.Hide()
@@ -812,6 +823,16 @@ if ($kind -eq 'question') {
       $btn.Height = 36
       $btn.Margin = New-Object System.Windows.Thickness 0, 0, 0, 8
       $btn.HorizontalAlignment = 'Stretch'
+      if ($multi) {
+        $check = New-Object System.Windows.Controls.CheckBox
+        $check.Content = $label
+        $check.Foreground = $brFg
+        $check.VerticalContentAlignment = 'Center'
+        # Keep the whole option button as the single click and keyboard target.
+        $check.IsHitTestVisible = $false
+        $check.Focusable = $false
+        $btn.Content = $check
+      }
       $btn.Tag = @{ qid = $qid; label = $label; multi = $multi; on = $false }
       [void]$script:optButtons[$qid].Add($btn)
       $btn.Add_Click({
@@ -830,6 +851,7 @@ if ($kind -eq 'question') {
               $this.Background = $brChipOn
               $this.Foreground = $brFg
             }
+            $this.Content.IsChecked = $script:picked[$qid].Contains($label)
             return
           }
           # Multi-question card: a single-select click only records the choice for that

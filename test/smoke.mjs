@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -28,6 +30,8 @@ import {
   createSettledLog,
   normalizeConfig,
   promptIdle,
+  runtimePlatformOf,
+  sessionOpenUrl,
   publicConfig,
   sessionKindOf,
   shouldNotifySession,
@@ -37,6 +41,7 @@ import {
 } from '../src/index.js'
 import { protocolUri, parseProtocolUri } from '../src/protocol.js'
 import { migrateUiOverlay, pickUiFields, sanitizeUiPatch, UI_SCHEMA_VERSION } from '../src/persist.js'
+import { inboxPath } from '../src/inbox.js'
 
 test('xmlEscape covers markup', () => {
   assert.equal(xmlEscape(`a&b<c>"'`), 'a&amp;b&lt;c&gt;&quot;&apos;')
@@ -118,6 +123,26 @@ test('sessionFocusUrl puts the session id in the hash', () => {
   assert.equal(sessionFocusUrl('http://127.0.0.1:3080/', 'abc'), 'http://127.0.0.1:3080/#dsh-attention=abc')
   assert.equal(parseFocusHash('#dsh-attention=abc'), 'abc')
   assert.equal(parseFocusHash(''), '')
+})
+
+test('runtime profile chooses Desktop instead of guessing from ports or installed apps', () => {
+  assert.equal(runtimePlatformOf({ profileContext: { name: 'desktop' } }), 'desktop')
+  assert.equal(runtimePlatformOf({ profileContext: { name: 'web' } }), 'web')
+  assert.equal(runtimePlatformOf({}), 'web')
+  assert.equal(sessionOpenUrl('desktop', 'http://127.0.0.1:19387', 'session'), 'dsh://open')
+})
+
+test('Web and Desktop instances use different answer inboxes', () => {
+  assert.notEqual(inboxPath(3080), inboxPath(19387))
+  assert.equal(inboxPath(3080).endsWith('inbox-3080.jsonl'), true)
+})
+
+test('Web session links preserve authentication and pathname while encoding session ids', () => {
+  const connection = { authenticatedUrl: (base) => `${base}/?token=launch-token` }
+  const url = new URL(sessionOpenUrl('web', 'http://127.0.0.1:3080', 'a/b &c', connection))
+  assert.equal(url.searchParams.get('token'), 'launch-token')
+  assert.equal(parseFocusHash(url.hash), 'a/b &c')
+  assert.equal(sessionFocusUrl('http://localhost:3080/prefix/?token=t', 'abc'), 'http://localhost:3080/prefix/?token=t#dsh-attention=abc')
 })
 
 test('system toast may use http only as the open-session fallback', () => {
@@ -275,6 +300,11 @@ test('findPwsh ignores missing candidates', () => {
 })
 
 if (process.platform === 'win32') {
+  test('Windows scripts parse and route Desktop clicks to the official protocol', () => {
+    const script = fileURLToPath(new URL('./windows.ps1', import.meta.url))
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', script], { windowsHide: true, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+  })
   test('findPwsh finds pwsh on PATH', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-attention-pwsh-'))
     try {

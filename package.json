@@ -37,7 +37,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/smoke.mjs",
+    "test": "node --test test/smoke.mjs test/client.mjs",
     "check": "node --check src/index.js && node --check src/toast.js && node --check src/util.js && node --check src/protocol.js && node --check src/persist.js && node --check src/ui-page.js && node --check src/inbox.js && node --check client/client.js"
   },
   "dsh": {
@@ -51,6 +51,8 @@
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-settings",
         "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-workspace",
         "@deepseek-ai/dsh-client-ui-settings-general"
       ]
     }

@@ -165,10 +165,11 @@ export const FOCUS_HASH_PREFIX = 'dsh-attention='
 
 /** 系统通知打开会话时落到已有 SPA，并用 hash 带上 sessionId。 */
 export function sessionFocusUrl(webUrl, sessionId) {
-  const base = trimSlash(webUrl || DEFAULT_WEB_URL)
+  const url = new URL(webUrl || DEFAULT_WEB_URL)
   const id = String(sessionId ?? '').trim()
-  if (!id) return `${base}/`
-  return `${base}/#${FOCUS_HASH_PREFIX}${encodeURIComponent(id)}`
+  if (!url.pathname.endsWith('/')) url.pathname += '/'
+  url.hash = id ? `${FOCUS_HASH_PREFIX}${encodeURIComponent(id)}` : ''
+  return url.href
 }
 
 export function parseFocusHash(hash) {

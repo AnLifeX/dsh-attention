@@ -77,6 +77,7 @@ export function writeHandlerConfig(cfg) {
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, `${JSON.stringify({
     webUrl: cfg.webUrl,
+    platform: cfg.platform === 'desktop' ? 'desktop' : 'web',
     openSessionMode: cfg.openSessionMode === 'new' ? 'new' : 'reuse',
   }, null, 2)}\n`)
   return path
