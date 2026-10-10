@@ -89,7 +89,7 @@ export function asBool(value, fallback) {
 }
 
 export function notifyStyleOf(value) {
-  return value === 'system' ? 'system' : 'custom'
+  return value === 'system' || value === 'pet' ? value : 'custom'
 }
 
 /** 回到会话：reuse=前置已有窗口，new=新开。 */

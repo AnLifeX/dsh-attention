@@ -1,0 +1,7 @@
+{
+  "id": "dsh-whale-girl",
+  "displayName": "Whale Girl",
+  "description": "A whale girl companion for DeepSeek Harness notifications.",
+  "spriteVersionNumber": 2,
+  "spritesheetPath": "spritesheet.png"
+}

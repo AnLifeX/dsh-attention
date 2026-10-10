@@ -36,7 +36,6 @@ export function migrateUiOverlay(raw) {
 }
 
 export const UI_KEYS = [
-  'enabled',
   'notifyApproval',
   'notifyQuestion',
   'notifyIdle',
@@ -44,6 +43,7 @@ export const UI_KEYS = [
   'notifyStyle',
   'notifyTimeoutSec',
   'cardOpacity',
+  'petScale',
   'openSessionMode',
   'focusAfterReply',
   'sound',

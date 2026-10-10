@@ -16,7 +16,7 @@ import { buildToastXml, fireToast } from './toast.js'
 import { protocolUri, registerProtocol } from './protocol.js'
 import { pickUiFields, readUiOverlay, sanitizeUiPatch, writeUiOverlay } from './persist.js'
 import { renderReplyHtml } from './ui-page.js'
-import { choiceWindowPath, drainInbox, removePending, writeFocusState, writePending } from './inbox.js'
+import { choiceWindowPath, cleanupWorkFiles, drainInbox, pendingPath, removePending, writeFocusState, writePending } from './inbox.js'
 import {
   DEFAULT_AUMID,
   DEFAULT_WEB_URL,
@@ -34,7 +34,6 @@ import {
   findPwsh,
   buildQuestionAnswers,
   sessionFocusUrl,
-  shortSessionId,
 } from './util.js'
 
 export const name = 'dsh-attention'
@@ -48,6 +47,7 @@ const DEFAULT_CONFIG = {
   notifyStyle: 'custom',
   notifyTimeoutSec: 30,
   cardOpacity: 0.78,
+  petScale: 1,
   openSessionMode: 'reuse',
   focusAfterReply: false,
   sound: DEFAULT_SOUND,
@@ -88,6 +88,9 @@ export function normalizeConfig(config) {
   cfg.cardOpacity = Number.isFinite(Number(cfg.cardOpacity))
     ? Math.min(1, Math.max(0.1, Math.round(Number(cfg.cardOpacity) * 100) / 100))
     : DEFAULT_CONFIG.cardOpacity
+  cfg.petScale = Number.isFinite(Number(cfg.petScale))
+    ? Math.min(2, Math.max(0.5, Math.round(Number(cfg.petScale) * 100) / 100))
+    : DEFAULT_CONFIG.petScale
   cfg.openSessionMode = openSessionModeOf(cfg.openSessionMode)
   cfg.focusAfterReply = asBool(cfg.focusAfterReply, false)
   cfg.hiddenReloadMs = limitMsOf(cfg.hiddenReloadMs, DEFAULT_CONFIG.hiddenReloadMs)
@@ -103,6 +106,7 @@ export function normalizeConfig(config) {
 export function publicConfig(cfg) {
   return {
     ok: true,
+    enabled: cfg.enabled,
     ...pickUiFields(cfg),
     soundEnabled: Boolean(cfg.sound),
   }
@@ -349,6 +353,43 @@ export async function promptIdle(sessionController, record, text) {
   }, new AbortController().signal)
 }
 
+export async function runPetSessionAction(controller, sessionId, action, text) {
+  if (action === 'stop') return controller.cancel({ sessionId })
+  if (action === 'reply') {
+    const value = String(text ?? '').trim()
+    if (!value) throw new Error('请输入回复内容')
+    return promptIdle(controller, { sessionId }, value)
+  }
+  throw new Error('未知会话操作')
+}
+
+export function petEventPreview(event) {
+  const data = event?.data
+  if (event?.type === 'tool/call') return `正在执行 ${String(data?.name ?? '工具')}`
+  if (event?.type === 'tool/result') return data?.message?.isError ? '工具执行失败' : '工具执行完成'
+  if (event?.type !== 'assistant/message' && event?.type !== 'user/message') return ''
+  const content = data?.message?.content ?? data?.content
+  const text = typeof content === 'string' ? content : Array.isArray(content)
+    ? content.filter((part) => part?.type === 'text').map((part) => part.text).join(' ') : ''
+  return clip(String(text).replace(/\s+/g, ' ').trim(), 140)
+}
+
+export async function* observePetStream(options, next, onPreview) {
+  let text = ''
+  for await (const chunk of next()) {
+    if (options.sessionId && !options.purpose) {
+      let preview = ''
+      if (chunk.type === 'text-delta') {
+        text = (text + chunk.text).slice(0, 300)
+        preview = clip(text.replace(/\s+/g, ' ').trim(), 140)
+      } else if (chunk.type === 'reasoning-delta' && !text) preview = '正在思考'
+      else if (chunk.type === 'tool-call-delta' && chunk.name) preview = `正在执行 ${chunk.name}`
+      if (preview) onPreview(options.sessionId, preview)
+    }
+    yield chunk
+  }
+}
+
 function toastInputText(url, extra = {}) {
   const keys = ['task', 'text', 'input.task', 'input_task']
   for (const key of keys) {
@@ -366,23 +407,23 @@ function receiptOk(receipt) {
   return false
 }
 
-function loadLogoPng() {
+function loadImagePng(file) {
   try {
-    return readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'logo.png'))
+    return readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', file))
   } catch {
     return null
   }
 }
 
-function resolveTitle(ctx, session) {
+export function resolveTitle(sessionTitle, session) {
   try {
-    const title = ctx.sessionTitle?.get?.(session)?.title
+    const title = sessionTitle?.get?.(session)?.title
     if (typeof title === 'string' && title.trim()) return clip(title.trim(), 40)
   } catch {
     /* sessionTitle 不在 ctx 上时忽略 */
   }
   try {
-    const events = session?.events
+    const events = session?.snapshotEvents?.() ?? session?.events
     if (Array.isArray(events)) {
       for (let i = events.length - 1; i >= 0; i -= 1) {
         const event = events[i]
@@ -394,11 +435,24 @@ function resolveTitle(ctx, session) {
   } catch {
     /* 会话已分离 */
   }
-  return `#${shortSessionId(session?.id)}`
+  return ''
+}
+
+export function acknowledgeCompletedPetSession(item, hiddenSessions) {
+  if (!item || item.running || item.needsAnswer) return false
+  hiddenSessions.set(item.sessionId, item.turnKey)
+  return true
 }
 
 export function apply(ctx, config = {}) {
-  const cfg = normalizeConfig({ ...config, ...readUiOverlay() })
+  cleanupWorkFiles()
+  const overlay = readUiOverlay()
+  if (!Object.hasOwn(config, 'petScale') && !Object.hasOwn(overlay, 'petScale')) {
+    try {
+      overlay.petScale = JSON.parse(readFileSync(join(dirname(pendingPath('')), 'pet-settings.json'), 'utf8')).scale
+    } catch { /* Previous desktop scale is optional. */ }
+  }
+  const cfg = normalizeConfig({ ...config, ...overlay })
   const platform = runtimePlatformOf(ctx)
   const choiceShellPath = cfg.choiceShellPath || findPwsh() || powershell51()
   let runtimeWebUrl = DEFAULT_WEB_URL
@@ -412,20 +466,66 @@ export function apply(ctx, config = {}) {
   /** token → 待处理项。审批 / 提问项持有 waterfall 的本地决议。 */
   const byToken = new Map()
   const runningBySession = new Map()
+  const hiddenPetSessions = new Map()
+  const petTurns = new Map()
+  const petActivityAt = new Map()
+  const petPreviews = new Map()
+  const petTitles = new Map()
+  const petSessions = () => {
+    const records = new Map()
+    for (const [sessionId, running] of runningBySession) {
+      const session = sessionOf(sessionId)
+      if (session && !petPreviews.has(sessionId)) {
+        const events = session.snapshotEvents?.() ?? session.events ?? []
+        petPreviews.set(sessionId, [...events].reverse().map(petEventPreview).find(Boolean) || '')
+      }
+      records.set(sessionId, { sessionId, title: titleOf(sessionId, session), status: running ? '进行中' : '已完成', running, canReply: sessionKinds.get(sessionId) === 'primary' })
+    }
+    for (const record of byToken.values()) {
+      const session = sessionOf(record.sessionId)
+      const old = records.get(record.sessionId)
+      records.set(record.sessionId, {
+        ...old, sessionId: record.sessionId,
+        title: titleOf(record.sessionId, session),
+        status: record.kind === 'approval' ? '待审批' : record.kind === 'question' ? '待回答' : '已完成',
+        running: old?.running === true, canReply: sessionKinds.get(record.sessionId) === 'primary',
+        token: record.token, needsAnswer: record.kind !== 'idle',
+      })
+    }
+    return [...records.values()].filter((item) => hiddenPetSessions.get(item.sessionId) !== (petTurns.get(item.sessionId) || 0)).map((item) => ({
+      ...item,
+      preview: petPreviews.get(item.sessionId) || item.status,
+      turnKey: petTurns.get(item.sessionId) || 0,
+      updatedAt: petActivityAt.get(item.sessionId) || 0,
+    })).sort((a, b) => Number(b.needsAnswer === true) - Number(a.needsAnswer === true) || Number(b.running) - Number(a.running) || b.updatedAt - a.updatedAt)
+  }
+  let petWindow = null
+  let petStateToken = null
+  const petBubbles = new Set()
+  let lastPetSync = 0
+  let lastCompletedAt = 0
+  let lastFailedAt = 0
+  let disposed = false
   const nativeSettled = createSettledLog({ max: () => cfg.settledMax })
   let lastUiFocusedAt = 0
   let lastUiTitle = ''
+  let lastUiSessionId = ''
   let lastUiTheme = 'light'
   const pendingFocus = { sessionId: null, until: 0 }
 
   const rememberTheme = (value) => {
     const t = String(value || '').toLowerCase()
-    if (t === 'dark' || t === 'light') lastUiTheme = t
+    if ((t === 'dark' || t === 'light') && t !== lastUiTheme) {
+      lastUiTheme = t
+      lastPetSync = 0
+      syncPet()
+    }
   }
 
   const remember = (record) => {
     if (record.timeoutSec == null) record.timeoutSec = cfg.notifyTimeoutSec
     byToken.set(record.token, record)
+    petActivityAt.set(record.sessionId, Date.now())
   }
 
   const forgetToken = (token) => {
@@ -502,6 +602,8 @@ export function apply(ctx, config = {}) {
       token,
       timeoutSec: cfg.notifyTimeoutSec,
       cardOpacity: cfg.cardOpacity,
+      notifyStyle: cfg.notifyStyle,
+      petAnchorFile: `${pendingPath(`pet-${runtimePort()}`)}.anchor.json`,
       webUrl: runtimeWebUrl,
       platform,
       port: runtimePort(),
@@ -517,9 +619,15 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  const openChoiceWindow = (token) => {
+  const openChoiceWindow = (token, data) => {
     if (process.platform !== 'win32') return false
+    const record = byToken.get(token)
+    if (!record) return false
+    if (data) record.choiceData = data
+    if (record.choiceWindow?.pid && record.choiceWindow.exitCode === null) return true
     try {
+      // A timed-out card can be reopened from the pet while its decision is still pending.
+      if (record.choiceData) writePending(token, record.choiceData)
       const child = spawn(
         choiceShellPath,
         [
@@ -532,6 +640,16 @@ export function apply(ctx, config = {}) {
         ],
         { windowsHide: false, stdio: 'ignore' },
       )
+      record.choiceWindow = child
+      child.once('exit', () => { record.choiceWindow = null; removePending(token) })
+      if (cfg.notifyStyle === 'pet') {
+        petBubbles.add(child)
+        child.once('exit', () => {
+          petBubbles.delete(child)
+          if (child.pid) removePending(`pet-visible-${child.pid}`)
+        })
+        child.once('error', () => petBubbles.delete(child))
+      }
       child.on('error', (error) => {
         ctx.logger?.warn?.(`dsh-attention: 无法打开选择窗: ${String(error)}`)
         if (byToken.has(token)) forgetToken(token)
@@ -567,6 +685,56 @@ export function apply(ctx, config = {}) {
   }
   prewarmChoiceWindow()
 
+  const syncPet = () => {
+    if (process.platform !== 'win32' || disposed) return
+    const token = `pet-${runtimePort()}`
+    if (!cfg.enabled || cfg.notifyStyle !== 'pet') {
+      petWindow?.kill()
+      petWindow = null
+      for (const child of petBubbles) child.kill()
+      petBubbles.clear()
+      if (petStateToken) {
+        removePending(petStateToken)
+        removePending(`${petStateToken}.json.anchor`)
+      }
+      petStateToken = null
+      return
+    }
+    const now = Date.now()
+    if (now - lastPetSync < 1000) return
+    lastPetSync = now
+    try {
+      writePending(token, {
+        ownerPid: process.pid,
+        platform,
+        theme: lastUiTheme,
+        petScale: cfg.petScale,
+        webUrl: runtimeWebUrl,
+        updatedAt: now,
+        pose: [...byToken.values()].some((item) => item.kind !== 'idle') ? 'question'
+          : now - lastFailedAt < 2500 ? 'failed'
+            : [...runningBySession.values()].some(Boolean) ? 'work' : now - lastCompletedAt < 5000 ? 'done' : 'neutral',
+        bubblePids: [...petBubbles].map((child) => child.pid).filter(Boolean),
+        sessions: petSessions(),
+      })
+      petStateToken = token
+      if (petWindow) return
+      const child = spawn(choiceShellPath, [
+        '-NoProfile', '-STA', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
+        '-File', join(dirname(choiceWindowPath()), 'pet-window.ps1'), '-StateFile', pendingPath(token),
+      ], { windowsHide: true, stdio: 'ignore' })
+      petWindow = child
+      const clear = () => { if (petWindow === child) petWindow = null }
+      child.once('exit', clear)
+      child.once('error', (error) => {
+        clear()
+        ctx.logger?.warn?.(`dsh-attention: 无法启动常驻宠物: ${String(error)}`)
+      })
+    } catch (error) {
+      ctx.logger?.warn?.(`dsh-attention: 无法同步宠物状态: ${String(error)}`)
+    }
+  }
+
   const fireSystemToast = (token, title, lines) => {
     const xml = buildToastXml({
       title,
@@ -582,21 +750,32 @@ export function apply(ctx, config = {}) {
     fireToast(ctx, cfg, xml)
   }
 
+  let sessions = null
+  let sessionTitle = null
+  ctx.inject(['sessionTitle'], (scope) => {
+    sessionTitle = scope.sessionTitle
+    scope.effect(() => () => { sessionTitle = null }, 'dsh-attention: session titles')
+  })
   const sessionOf = (sessionId) => {
     try {
-      return ctx.sessions?.get?.(sessionId)
+      return sessions?.get?.(sessionId)
     } catch {
       return undefined
     }
   }
   const sessionKinds = createSessionKindTracker(sessionOf)
 
-  try {
-    for (const session of ctx.sessions?.list?.() ?? []) {
+  ctx.inject(['sessions'], (scope) => {
+    sessions = scope.sessions
+    for (const session of sessions.list?.() ?? []) {
       sessionKinds.rememberSession(session)
     }
-  } catch {
-    /* request.agent 和实时 session/status 仍会补齐；未知会话按不通知处理。 */
+    scope.effect(() => () => { sessions = null }, 'dsh-attention: session store')
+  })
+
+  const titleOf = (sessionId, session = sessionOf(sessionId)) => {
+    const title = session ? resolveTitle(sessionTitle, session) : ''
+    return title || petTitles.get(sessionId) || '未命名会话'
   }
 
   const uiFocused = () => Date.now() - lastUiFocusedAt < cfg.presenceStaleMs
@@ -634,7 +813,7 @@ export function apply(ctx, config = {}) {
     if (!shouldNotifySession(cfg, kind, 'approval')) return next()
 
     const token = mintToken()
-    const who = session ? resolveTitle(ctx, session) : `#${shortSessionId(sessionId)}`
+    const who = titleOf(sessionId, session)
     const reason = String(request.reason ?? '')
     const escalation = /^escalate sandbox to (\S+):\s*(.*)$/.exec(reason)
     const what = escalation
@@ -658,13 +837,12 @@ export function apply(ctx, config = {}) {
         '点击通知回到该会话，在页面里处理',
       ])
     } else {
-      writePending(token, choicePending(token, sessionId, {
+      openChoiceWindow(token, choicePending(token, sessionId, {
         kind: 'approval',
         session: clip(who, 22),
         heading: '需要审批',
         sub: why ? `${what}：${why}` : what,
       }))
-      openChoiceWindow(token)
     }
     return awaitAnswer(record, next)
   }
@@ -678,7 +856,7 @@ export function apply(ctx, config = {}) {
 
     const questions = Array.isArray(request.questions) ? request.questions : []
     const token = mintToken()
-    const who = session ? resolveTitle(ctx, session) : `#${shortSessionId(sessionId)}`
+    const who = titleOf(sessionId, session)
     const first = questions[0]
     const prompt = clip(first?.question ?? '需要你做选择', 80)
     const optionActions = questionToastActions(questions)
@@ -700,13 +878,12 @@ export function apply(ctx, config = {}) {
         '点击通知回到该会话，在页面里选择',
       ])
     } else {
-      writePending(token, choicePending(token, sessionId, {
+      openChoiceWindow(token, choicePending(token, sessionId, {
         kind: 'question',
         session: clip(who, 22),
         heading: prompt,
         questions,
       }))
-      openChoiceWindow(token)
     }
     return awaitAnswer(record, next)
   }
@@ -720,7 +897,7 @@ export function apply(ctx, config = {}) {
     forgetIdleFor(sessionId)
     const token = mintToken()
     const session = sessionOf(sessionId)
-    const who = session ? resolveTitle(ctx, session) : `#${shortSessionId(sessionId)}`
+    const who = titleOf(sessionId, session)
 
     remember({
       kind: 'idle',
@@ -736,13 +913,12 @@ export function apply(ctx, config = {}) {
       ])
       return
     }
-    writePending(token, choicePending(token, sessionId, {
+    openChoiceWindow(token, choicePending(token, sessionId, {
       kind: 'idle',
       session: clip(who, 22),
       heading: isSubagent ? '子代理任务已完成' : '主会话本轮已完成',
       isSubagent,
     }))
-    openChoiceWindow(token)
   }
 
   const onSessionStatus = (sessionId, running) => {
@@ -751,10 +927,21 @@ export function apply(ctx, config = {}) {
     const prev = runningBySession.get(sessionId)
     runningBySession.set(sessionId, running)
     if (running) {
+      if (prev !== true) {
+        petTurns.set(sessionId, (petTurns.get(sessionId) || 0) + 1)
+        petPreviews.set(sessionId, '正在思考')
+        petActivityAt.set(sessionId, Date.now())
+      }
       forgetIdleFor(sessionId)
       return
     }
-    if (prev === true && running === false) showIdleToast(sessionId)
+    if (prev === true && running === false) {
+      lastCompletedAt = Date.now()
+      showIdleToast(sessionId)
+      if (uiFocused() && lastUiSessionId === sessionId) {
+        acknowledgeCompletedPetSession(petSessions().find((item) => item.sessionId === sessionId), hiddenPetSessions)
+      }
+    }
   }
 
   const rejectUnlessLoopback = (req, res) => {
@@ -853,12 +1040,73 @@ export function apply(ctx, config = {}) {
     return answerQuestion(request, next)
   }, { prepend: true })
   ctx.on('api-session/status', onSessionStatus)
+  ctx.on('api-session/added', (summary) => {
+    if (summary.running || runningBySession.has(summary.sessionId)) onSessionStatus(summary.sessionId, summary.running)
+  })
+  ctx.on('api-session/removed', (sessionId) => {
+    runningBySession.delete(sessionId)
+    hiddenPetSessions.delete(sessionId)
+    petTurns.delete(sessionId)
+    petActivityAt.delete(sessionId)
+    petPreviews.delete(sessionId)
+    petTitles.delete(sessionId)
+    for (const record of [...byToken.values()]) if (record.sessionId === sessionId) forgetToken(record.token)
+  })
+  ctx.on('llm/stream', function (options, next) {
+    return observePetStream(options, next, (sessionId, preview) => {
+      if (cfg.enabled && cfg.notifyStyle === 'pet') {
+        petPreviews.set(sessionId, preview)
+        petActivityAt.set(sessionId, Date.now())
+      }
+    })
+  })
+  ctx.on('session/event', (session, event) => {
+    if (!session?.id) return
+    if (event.type === 'session/title' && event.data?.title) petTitles.set(session.id, String(event.data.title))
+    const preview = petEventPreview(event)
+    if (preview) {
+      if (event.type === 'tool/result' && event.data?.message?.isError) lastFailedAt = Date.now()
+      petPreviews.set(session.id, preview)
+      petActivityAt.set(session.id, Date.now())
+    }
+  }, { global: true })
 
   ctx.inject(['sessionController', 'webServer'], (scope) => {
     const { sessionController, webServer } = scope
     runtimeWebUrl = webServerUrl(webServer)
     registerProtocol(runtimeConfig(), ctx.logger)
+    syncPet()
+    scope.effect(() => webServer.register({
+      kind: 'exact', path: '/dsh-attention/pet-act',
+      async handler(req, res) {
+        if (rejectUnlessLoopback(req, res)) return
+        if (req.method !== 'POST') { res.writeHead(405, { Allow: 'POST' }); res.end(); return }
+        try {
+          const { sessionId, action, text } = await readJsonBody(req)
+          if (cfg.notifyStyle !== 'pet' || !cfg.enabled) throw new Error('宠物模式未启用')
+          const item = petSessions().find((entry) => entry.sessionId === sessionId)
+          if (!item) throw new Error('会话已不可用')
+          if (action === 'open') {
+            requestFocus(sessionId)
+            acknowledgeCompletedPetSession(item, hiddenPetSessions)
+          } else if (action === 'dismiss') {
+            hiddenPetSessions.set(sessionId, item.turnKey)
+          } else if (action === 'compose' && item.token) {
+            openChoiceWindow(item.token)
+          } else {
+            if (action === 'reply' && !item.canReply) throw new Error('子代理会话不能直接回复')
+            if (action === 'stop' && !item.running) throw new Error('会话当前未运行')
+            const receipt = await runPetSessionAction(sessionController, sessionId, action, text)
+            if (!receiptOk(receipt)) throw new Error('宿主未接受操作')
+          }
+          sendJson(res, 200, { ok: true })
+          lastPetSync = 0
+          syncPet()
+        } catch (error) { sendJson(res, 400, { ok: false, error: String(error) }) }
+      },
+    }), 'dsh-attention: pet actions')
     inboxTimer = setInterval(() => {
+      syncPet()
       for (const job of drainInbox(runtimePort())) {
         const token = String(job?.t ?? '')
         const action = String(job?.a ?? '')
@@ -914,6 +1162,8 @@ export function apply(ctx, config = {}) {
           Object.assign(cfg, next)
           writeUiOverlay(pickUiFields(cfg))
           registerProtocol(runtimeConfig(), ctx.logger)
+          lastPetSync = 0
+          syncPet()
           sendJson(res, 200, publicConfig(cfg))
         } catch (error) {
           sendJson(res, 400, { ok: false, error: String(error) })
@@ -921,11 +1171,12 @@ export function apply(ctx, config = {}) {
       },
     }), 'dsh-attention: config')
 
-    const logoPng = loadLogoPng()
-    if (logoPng) {
+    for (const file of ['logo.png', 'pet/preview.png']) {
+      const imagePng = loadImagePng(file)
+      if (!imagePng) continue
       scope.effect(() => webServer.register({
         kind: 'exact',
-        path: '/dsh-attention/logo.png',
+        path: `/dsh-attention/${file}`,
         handler(req, res) {
           if (req.method !== 'GET' && req.method !== 'HEAD') {
             res.writeHead(405, { Allow: 'GET, HEAD' })
@@ -935,16 +1186,16 @@ export function apply(ctx, config = {}) {
           const headers = {
             'Content-Type': 'image/png',
             'Cache-Control': 'public, max-age=86400',
-            'Content-Length': logoPng.length,
+            'Content-Length': imagePng.length,
           }
           if (req.method === 'HEAD') {
             res.writeHead(200, headers)
             res.end()
             return
           }
-          send(res, 200, headers, logoPng)
+          send(res, 200, headers, imagePng)
         },
-      }), 'dsh-attention: logo')
+      }), `dsh-attention: image ${file}`)
     }
 
     scope.effect(() => webServer.register({
@@ -971,6 +1222,13 @@ export function apply(ctx, config = {}) {
         if (body.focused === true) lastUiFocusedAt = Date.now()
         else lastUiFocusedAt = 0
         const focusedSession = typeof body.sessionId === 'string' ? body.sessionId : ''
+        lastUiSessionId = focusedSession
+        if (body.focused === true && focusedSession) {
+          if (acknowledgeCompletedPetSession(petSessions().find((item) => item.sessionId === focusedSession), hiddenPetSessions)) {
+            lastPetSync = 0
+            syncPet()
+          }
+        }
         if (typeof body.title === 'string' && body.title.trim()) {
           lastUiTitle = body.title.trim()
         }
@@ -1113,9 +1371,23 @@ export function apply(ctx, config = {}) {
   })
 
   ctx.effect(() => () => {
+    disposed = true
+    petWindow?.kill()
+    petWindow = null
+    for (const child of petBubbles) child.kill()
+    petBubbles.clear()
+    if (petStateToken) {
+      removePending(petStateToken)
+      removePending(`${petStateToken}.json.anchor`)
+    }
     if (inboxTimer) clearInterval(inboxTimer)
     for (const token of [...byToken.keys()]) forgetToken(token)
     runningBySession.clear()
+    hiddenPetSessions.clear()
+    petTurns.clear()
+    petActivityAt.clear()
+    petPreviews.clear()
+    petTitles.clear()
     sessionKinds.clear()
   }, 'dsh-attention: dispose')
 }

@@ -1,4 +1,13 @@
 node_modules/
+# Local generation, review and test artifacts.
+/output/
+/.scratch/
+/.playwright-cli/
+/.npm-cache/
+/.acl-recovery/
+__pycache__/
+*.pyc
+*.tgz
 *.log
 .DS_Store
 Thumbs.db

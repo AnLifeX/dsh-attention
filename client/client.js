@@ -35,13 +35,15 @@ window.__ModuleLoader__.load({
 			cardNotifyDesc: "什么时候提醒，以及用系统卡片还是自制卡片。",
 			cardWake: "休眠唤醒",
 			cardWakeDesc: "标签被冻住后再回来时，是否强制刷新把卡片重放出来。",
-			enabled: "启用通知",
-			enabledHint: "关掉后不再提醒，设置页仍然可用。",
 			notifyStyle: "卡片样式",
 			styleSystem: "系统通知卡片",
 			styleSystemHint: "只支持点一下打开会话，由系统交给浏览器处理，不能复用已打开的 Edge 应用。不能在通知里选择、回复或提权。",
 			styleSystemDesktopHint: "点击唤回桌面窗口并切到会话。不能在系统通知里选择、回复或提权。",
 			styleCustom: "自制卡片",
+			stylePet: "宠物模式",
+			petScale: "宠物大小",
+			petScaleHint: "拖动调整大小，开启预览可实时查看；保存后应用到桌面宠物。",
+			stylePetHint: "鲸鱼娘常驻桌面，可拖动。工作时切换形态，有通知时展开操作气泡；处理或关闭气泡后继续陪伴。在插件列表中停用插件或切换样式即可隐藏。",
 			styleCustomHint: "右下角窗口。支持单选、多选、自定义输入、提权允许/拒绝，以及一轮结束后写下一步。卡片上的「回到会话」按提醒范围里的复用 / 新开设置执行。",
 			notifyApproval: "提权审批",
 			notifyQuestion: "提问 / 选择",
@@ -85,13 +87,15 @@ window.__ModuleLoader__.load({
 			cardNotifyDesc: "When to notify, and whether to use the system toast or the custom card.",
 			cardWake: "Wake after sleep",
 			cardWakeDesc: "Reload the tab after it was frozen so pending cards come back.",
-			enabled: "Enable notifications",
-			enabledHint: "Turns off notifications only. This settings page stays available.",
 			notifyStyle: "Card style",
 			styleSystem: "System toast",
 			styleSystemHint: "Tap to open the session in the browser. Cannot reuse an already-open Edge app. No in-toast choices, replies, or approvals.",
 			styleSystemDesktopHint: "Tap to restore Desktop and select the session. No in-toast choices, replies, or approvals.",
 			styleCustom: "Custom card",
+			stylePet: "Pet mode",
+			petScale: "Pet size",
+			petScaleHint: "Drag to resize. Enable preview to see changes live; save to apply them to the desktop pet.",
+			stylePetHint: "A draggable whale girl stays on your desktop, changes pose while working, and shows notification bubbles. Closing a bubble keeps the pet. Disable the plugin in the plugin list or change style to hide her.",
 			styleCustomHint: "A bottom-right window for single-select, multi-select, custom answers, allow/deny, and a next-step prompt when a turn ends. Return to session follows the setting under Notification scope.",
 			notifyApproval: "Sandbox approvals",
 			notifyQuestion: "Questions / choices",
@@ -130,7 +134,7 @@ window.__ModuleLoader__.load({
 			collapse: "Collapse"
 		};
 
-		const APPEARANCE_KEYS = ["notifyStyle", "notifyTimeoutSec", "cardOpacity"];
+		const APPEARANCE_KEYS = ["notifyStyle", "notifyTimeoutSec", "cardOpacity", "petScale"];
 		const SCOPE_KEYS = ["notifyApproval", "notifyQuestion", "notifyIdle", "notifySubagentIdle", "soundEnabled", "openSessionMode"];
 		const WAKE_KEYS = ["hiddenReloadMs", "settledMax"];
 
@@ -165,6 +169,9 @@ window.__ModuleLoader__.load({
 				} else if (key === "cardOpacity") {
 					left = Math.round((Number.isFinite(Number(left)) ? Math.min(1, Math.max(0.1, Number(left))) : 0.78) * 100) / 100;
 					right = Math.round((Number.isFinite(Number(right)) ? Math.min(1, Math.max(0.1, Number(right))) : 0.78) * 100) / 100;
+				} else if (key === "petScale") {
+					left = Number.isFinite(Number(left)) ? Math.min(2, Math.max(0.5, Number(left))) : 1;
+					right = Number.isFinite(Number(right)) ? Math.min(2, Math.max(0.5, Number(right))) : 1;
 				} else if (key === "notifyStyle" || key === "openSessionMode") {
 					left = String(left || "").trim();
 					right = String(right || "").trim();
@@ -523,11 +530,13 @@ window.__ModuleLoader__.load({
 				".dshatt_toast_err{background:var(--dsw-alias-state-error-primary,#ef4444)}",
 				"@keyframes dshatt_preview_enter{from{opacity:0;transform:translateY(28px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}",
 				".dshatt_preview{transform-origin:50% 100%;animation:dshatt_preview_enter .28s cubic-bezier(.16,1,.3,1) both;will-change:transform,opacity}",
+				"@keyframes dshatt_pet_float{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-4px) rotate(1deg)}}",
+				".dshatt_pet_preview{position:absolute;right:16px;bottom:100%;width:144px;height:144px;object-fit:contain;transform-origin:50% 100%;animation:dshatt_pet_float 3s ease-in-out infinite;pointer-events:none}",
 				".dshatt_preview_btn{appearance:none;border:0;font:inherit;cursor:pointer;transition:transform .1s cubic-bezier(.16,1,.3,1),opacity .1s cubic-bezier(.16,1,.3,1)}",
 				".dshatt_preview_btn:hover{opacity:.92}",
 				".dshatt_preview_btn:active{opacity:.82;transform:translateY(1px) scale(.96)}",
 				".dshatt_preview_btn:focus-visible{outline:2px solid currentColor;outline-offset:2px}",
-				"@media (prefers-reduced-motion:reduce){.dshatt_preview{animation:none;will-change:auto}.dshatt_preview_btn{transition:none}}",
+				"@media (prefers-reduced-motion:reduce){.dshatt_preview,.dshatt_pet_preview{animation:none;will-change:auto}.dshatt_preview_btn{transition:none}}",
 				"[data-dshatt-nav]>[class*='_navIcon']{display:none}",
 				"[data-dshatt-nav]:before{content:'';background:currentColor;flex:none;width:16px;height:16px;-webkit-mask:" + BELL_MASK + ";mask:" + BELL_MASK + "}"
 			].join("\n");
@@ -535,10 +544,11 @@ window.__ModuleLoader__.load({
 		}
 
 		function StyleChoice({ t, value, disabled, onChange, name }) {
-			const current = value === "system" ? "system" : "custom";
+			const current = value === "system" || value === "pet" ? value : "custom";
 			const options = [
 				{ id: "system", labelKey: "styleSystem", hintKey: IS_DESKTOP ? "styleSystemDesktopHint" : "styleSystemHint" },
-				{ id: "custom", labelKey: "styleCustom", hintKey: "styleCustomHint" }
+				{ id: "custom", labelKey: "styleCustom", hintKey: "styleCustomHint" },
+				{ id: "pet", labelKey: "stylePet", hintKey: "stylePetHint" }
 			];
 			return react.createElement("div", { className: "dshatt_row dshatt_row_stack" }, [
 				react.createElement("span", { className: "dshatt_copy", key: "c" }, [
@@ -801,6 +811,11 @@ window.__ModuleLoader__.load({
 					if (Number.isFinite(n)) payload.cardOpacity = Math.min(1, Math.max(0.1, Math.round(n * 100) / 100));
 					else delete payload.cardOpacity;
 				}
+				if (Object.hasOwn(payload, "petScale")) {
+					const n = Number(payload.petScale);
+					if (Number.isFinite(n)) payload.petScale = Math.min(2, Math.max(0.5, Math.round(n * 100) / 100));
+					else delete payload.petScale;
+				}
 				if (Object.keys(payload).length === 0) return;
 				setSavingCard(card);
 				setFailedCard(null);
@@ -821,34 +836,11 @@ window.__ModuleLoader__.load({
 				}).finally(() => setSavingCard(null));
 			};
 
-			const saveEnabled = (value) => {
-				if (!saved || savingCard) return;
-				const payload = { enabled: value === true };
-				setSavingCard("enable");
-				setFailedCard(null);
-				fetch("/dsh-attention/config", {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify(payload),
-					cache: "no-store"
-				}).then((response) => response.json().then((data) => ({ response, data })).catch(() => ({ response, data: null }))).then(({ response, data }) => {
-					if (!response.ok || !data?.ok) throw new Error("save-failed");
-					setSaved((prev) => ({ ...(prev || {}), ...data, ...payload }));
-					flash(t("saved"), false);
-					try { window.dispatchEvent(new CustomEvent("dsh-attention-config", { detail: data })); } catch { /* ignore */ }
-				}).catch(() => {
-					setFailedCard("enable");
-					flash(t("saveFailed"), true);
-				}).finally(() => setSavingCard(null));
-			};
-
 			if (!saved) return react.createElement("div", { className: "dshatt_page" });
 
-			const enableView = viewOf("enable");
 			const appearanceView = viewOf("appearance");
 			const scopeView = viewOf("scope");
 			const wakeView = viewOf("wake");
-			const off = enableView.enabled === false;
 			const appearanceDirty = dirtyOf("appearance", APPEARANCE_KEYS);
 			const scopeDirty = dirtyOf("scope", SCOPE_KEYS);
 			const wakeDirty = dirtyOf("wake", WAKE_KEYS);
@@ -863,8 +855,7 @@ window.__ModuleLoader__.load({
 					react.createElement("div", { className: "dshatt_settings_intro_copy", key: "copy" }, [
 						react.createElement("span", { className: "dshatt_settings_intro_title", key: "title" }, t("nav")),
 						react.createElement("span", { className: "dshatt_settings_intro_desc", key: "desc" }, t("cardNotifyDesc"))
-					]),
-					react.createElement(Switch, { key: "switch", checked: enableView.enabled !== false, disabled: savingCard === "enable", onChange: saveEnabled, label: t("enabled") })
+					])
 				]),
 				react.createElement("ul", { className: "dshatt_list", key: "list" }, [
 					react.createElement(PluginCard, {
@@ -880,17 +871,16 @@ window.__ModuleLoader__.load({
 						onDiscard: () => discardCard("scope"),
 						onSave: () => saveCard("scope", SCOPE_KEYS)
 					}, [
-						react.createElement(ToggleRow, { t, key: "appr", labelKey: "notifyApproval", checked: scopeView.notifyApproval !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyApproval: v }) }),
-						react.createElement(ToggleRow, { t, key: "q", labelKey: "notifyQuestion", checked: scopeView.notifyQuestion !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyQuestion: v }) }),
-						react.createElement(ToggleRow, { t, key: "idle", labelKey: "notifyIdle", checked: scopeView.notifyIdle !== false, disabled: off, onChange: (v) => patchCard("scope", { notifyIdle: v }) }),
-						react.createElement(ToggleRow, { t, key: "subidle", labelKey: "notifySubagentIdle", checked: scopeView.notifySubagentIdle === true, disabled: off, onChange: (v) => patchCard("scope", { notifySubagentIdle: v }) }),
-						react.createElement(ToggleRow, { t, key: "snd", labelKey: "soundEnabled", checked: scopeView.soundEnabled !== false, disabled: off, onChange: (v) => patchCard("scope", { soundEnabled: v }) }),
+						react.createElement(ToggleRow, { t, key: "appr", labelKey: "notifyApproval", checked: scopeView.notifyApproval !== false, onChange: (v) => patchCard("scope", { notifyApproval: v }) }),
+						react.createElement(ToggleRow, { t, key: "q", labelKey: "notifyQuestion", checked: scopeView.notifyQuestion !== false, onChange: (v) => patchCard("scope", { notifyQuestion: v }) }),
+						react.createElement(ToggleRow, { t, key: "idle", labelKey: "notifyIdle", checked: scopeView.notifyIdle !== false, onChange: (v) => patchCard("scope", { notifyIdle: v }) }),
+						react.createElement(ToggleRow, { t, key: "subidle", labelKey: "notifySubagentIdle", checked: scopeView.notifySubagentIdle === true, onChange: (v) => patchCard("scope", { notifySubagentIdle: v }) }),
+						react.createElement(ToggleRow, { t, key: "snd", labelKey: "soundEnabled", checked: scopeView.soundEnabled !== false, onChange: (v) => patchCard("scope", { soundEnabled: v }) }),
 						IS_DESKTOP ? react.createElement("p", { className: "dshatt_hint", key: "desktop-open" }, t("desktopOpenHint")) : appearanceView.notifyStyle === "system" ? null : react.createElement(OpenSessionChoice, {
 							t,
 							key: "openmode",
 							name: openModeName,
 							value: scopeView.openSessionMode,
-							disabled: off,
 							standalone,
 							onChange: (v) => patchCard("scope", { openSessionMode: v })
 						})
@@ -908,7 +898,16 @@ window.__ModuleLoader__.load({
 						onDiscard: () => discardCard("appearance"),
 						onSave: () => saveCard("appearance", APPEARANCE_KEYS)
 					}, [
-						react.createElement(StyleChoice, { t, key: "style", name: radioName, value: appearanceView.notifyStyle, disabled: off, onChange: (v) => patchCard("appearance", { notifyStyle: v }) }),
+						react.createElement(StyleChoice, { t, key: "style", name: radioName, value: appearanceView.notifyStyle, onChange: (v) => patchCard("appearance", { notifyStyle: v }) }),
+						appearanceView.notifyStyle !== "pet" ? null : react.createElement(FieldRow, { t, key: "petScale", labelKey: "petScale", hintKey: "petScaleHint" },
+							react.createElement("div", { className: "dshatt_opacity" }, [
+								react.createElement("input", {
+									className: "dshatt_range", type: "range", min: "50", max: "200", step: "5",
+									"aria-label": t("petScale"), value: String(Math.round((appearanceView.petScale ?? 1) * 100)),
+									onChange: (event) => patchCard("appearance", { petScale: Number(event.target.value) / 100 }), key: "range"
+								}),
+								react.createElement("span", { className: "dshatt_hint", key: "pct" }, String(Math.round((appearanceView.petScale ?? 1) * 100)) + "%")
+							])),
 						appearanceView.notifyStyle === "system" ? null : react.createElement(FieldRow, { t, key: "opacity", labelKey: "cardOpacity", hintKey: "cardOpacityHint" },
 							react.createElement("div", { className: "dshatt_opacity", key: "opacity" }, [
 								react.createElement("input", {
@@ -917,14 +916,13 @@ window.__ModuleLoader__.load({
 									min: "10",
 									max: "100",
 									step: "1",
-									disabled: off,
 									value: String(Math.round((appearanceView.cardOpacity ?? 0.78) * 100)),
 									onChange: (event) => patchCard("appearance", { cardOpacity: Number(event.target.value) / 100 }),
 									key: "range"
 								}),
 								react.createElement("span", { className: "dshatt_hint", key: "pct" }, String(Math.round((appearanceView.cardOpacity ?? 0.78) * 100)) + "%")
 							])),
-						appearanceView.notifyStyle === "system" ? null : react.createElement(ToggleRow, { t, key: "preview", labelKey: "cardPreview", hintKey: "cardPreviewHint", checked: preview, disabled: off, onChange: setPreview }),
+						appearanceView.notifyStyle === "system" ? null : react.createElement(ToggleRow, { t, key: "preview", labelKey: "cardPreview", hintKey: "cardPreviewHint", checked: preview, onChange: setPreview }),
 						react.createElement(FieldRow, { t, key: "timeout", labelKey: "notifyTimeoutSec", hintKey: "notifyTimeoutSecHint" },
 							react.createElement("input", {
 								className: "dshatt_input",
@@ -932,7 +930,6 @@ window.__ModuleLoader__.load({
 								min: "-1",
 								max: "86400",
 								step: "5",
-								disabled: off,
 								value: String(appearanceView.notifyTimeoutSec ?? 30),
 								onChange: (event) => {
 									const raw = event.target.value;
@@ -1004,7 +1001,7 @@ window.__ModuleLoader__.load({
 					role: "status",
 					key: "toast"
 				}, toast) : null,
-				preview && appearanceView.notifyStyle !== "system" && !off ? react.createElement("div", {
+				preview && appearanceView.notifyStyle !== "system" ? react.createElement("div", {
 					key: "preview",
 					className: "dshatt_preview",
 					style: {
@@ -1023,6 +1020,7 @@ window.__ModuleLoader__.load({
 						font: "13px/1.5 Segoe UI, Microsoft YaHei UI, Microsoft YaHei, PingFang SC, sans-serif"
 					}
 				}, [
+					appearanceView.notifyStyle === "pet" ? react.createElement("img", { key: "pet", className: "dshatt_pet_preview", style: { width: 152 * (appearanceView.petScale ?? 1), height: 152 * (appearanceView.petScale ?? 1) }, src: "/dsh-attention/pet/preview.png", alt: t("stylePet") }) : null,
 					react.createElement("div", { key: "header", style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } }, [
 						react.createElement("div", { key: "kicker", style: { fontSize: 11, textTransform: "uppercase", color: previewDark ? "#2dd4bf" : "#0f766e", fontWeight: 650 } }, "dsh · 预览"),
 						react.createElement("div", { key: "headerActions", style: { display: "flex", alignItems: "center", gap: 6 } }, [
@@ -1212,6 +1210,13 @@ window.__ModuleLoader__.load({
 				ensureTitleMark();
 				postPresence(currentSessionId(sessions, uiSession));
 			}, PRESENCE_MS);
+			let stopSessionWatch = () => {};
+			try {
+				const current = uiSession?.adapter?.current ?? sessions?.list;
+				if (typeof current?.subscribe === "function") {
+					stopSessionWatch = current.subscribe(() => postPresence(currentSessionId(sessions, uiSession))) ?? stopSessionWatch;
+				}
+			} catch { /* Periodic presence remains available for older clients. */ }
 
 			let stopThemeWatch = () => {};
 			try {
@@ -1243,6 +1248,7 @@ window.__ModuleLoader__.load({
 				clearInterval(focusTimer);
 				try { stopSettledWatch(); } catch { /* ignore */ }
 				try { stopThemeWatch(); } catch { /* ignore */ }
+				try { stopSessionWatch(); } catch { /* ignore */ }
 				try { channel?.close(); } catch { /* ignore */ }
 				document.removeEventListener("visibilitychange", onVisibility);
 				document.removeEventListener("freeze", onFreeze);

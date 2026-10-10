@@ -1,7 +1,8 @@
 {
   "name": "dsh-attention",
-  "version": "0.3.0",
-  "description": "DeepSeek Harness 插件：审批/提问时弹出可操作的 Windows Toast，并在浏览器标签休眠后唤醒重连，避免提权卡片卡住",
+  "version": "0.4.0",
+  "description": "Notifications for approvals, questions and completed sessions, with interactive cards and a desktop pet.",
+  "icon": "./assets/attention.svg",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -25,10 +26,12 @@
   "exports": {
     ".": "./src/index.js",
     "./client": "./client/client.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "assets",
+    "locale",
     "src",
     "client",
     "scripts",

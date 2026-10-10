@@ -715,6 +715,9 @@ $script:errTb = $errTb
 
 function Close-Soon {
   $script:busy = $true
+  if ($script:petBubble) {
+    [IO.File]::WriteAllText((Join-Path $work ('pending-pet-visible-' + $PID + '.json')), '{"pose":"done"}')
+  }
   $script:errTb.Foreground = $brMuted
   $script:errTb.Text = LabelOf 'done' 'OK'
   $t = New-Object System.Windows.Threading.DispatcherTimer
@@ -1026,7 +1029,32 @@ else {
 }
 
 $card.Child = $dock
-$outer.Children.Add($card) | Out-Null
+
+function Get-PetPose([string]$Kind, [bool]$Busy) {
+  if ($Busy -or $Kind -eq 'idle') { return 'done' }
+  if ($Kind -eq 'approval' -or $Kind -eq 'question') { return 'question' }
+  return 'neutral'
+}
+
+$script:petBubble = ([string]$data.notifyStyle -eq 'pet')
+if ($script:petBubble) {
+  . (Join-Path $PSScriptRoot 'pet-layout.ps1')
+  $script:petScroll = New-Object Windows.Controls.ScrollViewer
+  $script:petScroll.VerticalScrollBarVisibility = 'Auto'
+  $script:petScroll.HorizontalScrollBarVisibility = 'Disabled'
+  $card.Child = $null
+  $script:petScroll.Content = $dock
+  $card.Child = $script:petScroll
+  $script:petTip = New-Object System.Windows.Shapes.Path
+  $script:petTip.Fill = $brGlass
+  $script:petTip.Width = 12
+  $script:petTip.Height = 20
+  $script:petTip.HorizontalAlignment = 'Left'
+  $script:petTip.VerticalAlignment = 'Center'
+  [void]$outer.Children.Add($script:petTip)
+  $card.Margin = New-Object System.Windows.Thickness 12, 0, 12, 0
+}
+[void]$outer.Children.Add($card)
 $window.Content = $outer
 
 function Get-FocusedWorkArea {
@@ -1061,6 +1089,22 @@ function Place-BottomRight {
   $h = $script:window.ActualHeight
   if ($w -le 0) { $w = $script:window.Width }
   if ($h -le 0) { $h = 240 }
+  if ($script:petBubble -and $data.petAnchorFile) {
+    try {
+      $anchor = [IO.File]::ReadAllText([string]$data.petAnchorFile) | ConvertFrom-Json
+      $placement = Get-PetBubblePlacement $anchor $w $h
+      $script:window.Left = $placement.left
+      $script:window.Top = $placement.top
+      $script:window.MaxHeight = [Math]::Max(200, $anchor.workArea.bottom - $anchor.workArea.top - 16)
+      $script:petScroll.MaxHeight = [Math]::Max(120, $script:window.MaxHeight - 40)
+      $script:petTip.HorizontalAlignment = if ($placement.side -eq 'right') { 'Left' } else { 'Right' }
+      $script:petTip.Data = [Windows.Media.Geometry]::Parse($(if ($placement.side -eq 'right') { 'M 12,0 L 0,10 L 12,20 Z' } else { 'M 0,0 L 12,10 L 0,20 Z' }))
+      $tipY = [Math]::Max(24, [Math]::Min($anchor.top + $anchor.height / 2 - $placement.top - 28, $h - 64))
+      $script:petTip.VerticalAlignment = 'Top'
+      $script:petTip.Margin = New-Object Windows.Thickness 0, $tipY, 0, 0
+      return
+    } catch { Write-ActLog ('pet-anchor-error=' + $_.Exception.Message) }
+  }
   $script:window.Left = $wa.Right - $w - 10
   $script:window.Top = [Math]::Max($wa.Top + 16, $wa.Bottom - $h - 10)
 }
@@ -1110,9 +1154,10 @@ function Start-EntryAnimation {
 }
 
 $watch = New-Object System.Windows.Threading.DispatcherTimer
-$watch.Interval = [TimeSpan]::FromMilliseconds(800)
+$watch.Interval = [TimeSpan]::FromMilliseconds(100)
 $watch.Add_Tick({
-  if (-not (Test-Path -LiteralPath $pendingFile)) { $script:window.Close() }
+  if (-not (Test-Path -LiteralPath $pendingFile)) { $script:window.Close(); return }
+  if ($script:petBubble) { Place-BottomRight }
 })
 $watch.Start()
 
@@ -1138,6 +1183,10 @@ $life.Add_Tick({
 $window.Add_ContentRendered({
   Place-BottomRight
   Start-EntryAnimation
+  if ($script:petBubble) {
+    $marker = @{ pose = Get-PetPose $kind $false } | ConvertTo-Json -Compress
+    [IO.File]::WriteAllText((Join-Path $work ('pending-pet-visible-' + $PID + '.json')), $marker)
+  }
   if ($script:timeoutSec -gt 0) { $life.Start() }
   if ($script:idleBox) { [void]$script:idleBox.Focus() }
   if ($data.playSound -ne $false) {
@@ -1148,6 +1197,10 @@ $window.Add_SizeChanged({ Place-BottomRight })
 $window.Add_Closed({
   $watch.Stop()
   $life.Stop()
+  Remove-Item -LiteralPath $pendingFile -ErrorAction SilentlyContinue
+  if ($script:petBubble) {
+    Remove-Item -LiteralPath (Join-Path $work ('pending-pet-visible-' + $PID + '.json')) -ErrorAction SilentlyContinue
+  }
 })
 
 Write-ActLog ('show kind=' + $kind + ' token=' + $Token + ' timeout=' + $timeoutSec)

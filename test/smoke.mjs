@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { runInNewContext } from 'node:vm'
 import { fileURLToPath } from 'node:url'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -30,18 +32,148 @@ import {
   createSettledLog,
   normalizeConfig,
   promptIdle,
+  petEventPreview,
+  observePetStream,
+  runPetSessionAction,
   runtimePlatformOf,
   sessionOpenUrl,
   publicConfig,
+  apply,
+  resolveTitle,
+  acknowledgeCompletedPetSession,
   sessionKindOf,
   shouldNotifySession,
   racePendingDecision,
   settledMaxOf,
   webServerUrl,
 } from '../src/index.js'
+
+test('pet preview reads public message text and tool activity without exposing tool arguments', () => {
+  assert.equal(petEventPreview({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: ' Latest\n update ' }] } } }), 'Latest update')
+  assert.equal(petEventPreview({ type: 'tool/call', data: { name: 'shell', arguments: 'secret' } }), '正在执行 shell')
+  assert.equal(petEventPreview({ type: 'other', data: {} }), '')
+  assert.equal(petEventPreview({ type: 'tool/result', data: { message: { isError: true } } }), '工具执行失败')
+})
+
+test('pet observes live text without changing chunks or displaying auxiliary calls and raw reasoning', async () => {
+  const chunks = [
+    { type: 'reasoning-delta', text: 'private reasoning' },
+    { type: 'text-delta', text: 'Checking ' },
+    { type: 'text-delta', text: 'compatibility' },
+    { type: 'tool-call-delta', name: 'shell', argumentsDelta: 'secret' },
+  ]
+  const next = async function* () { yield* chunks }
+  const previews = []
+  const result = []
+  for await (const chunk of observePetStream({ sessionId: 'chosen' }, next, (...args) => previews.push(args))) result.push(chunk)
+  result.forEach((chunk, i) => assert.equal(chunk, chunks[i]))
+  assert.deepEqual(previews, [['chosen', '正在思考'], ['chosen', 'Checking'], ['chosen', 'Checking compatibility'], ['chosen', '正在执行 shell']])
+  for await (const _ of observePetStream({ sessionId: 'chosen', purpose: 'session-title' }, next, () => assert.fail('Auxiliary output must stay hidden'))) {}
+  const failing = async function* () { yield chunks[0]; throw new Error('stream failed') }
+  await assert.rejects(async () => { for await (const _ of observePetStream({}, failing, () => {})) {} }, /stream failed/)
+})
+
+test('pet reply and stop address only the selected session and reject blank replies', async () => {
+  const calls = []
+  const controller = {
+    cancel: (request) => { calls.push(['cancel', request]); return { accepted: true } },
+    prompt: (request, signal) => { assert.equal(signal.aborted, false); calls.push(['prompt', request]); return { accepted: true } },
+  }
+  await runPetSessionAction(controller, 'chosen', 'stop')
+  await runPetSessionAction(controller, 'chosen', 'reply', ' next step ')
+  assert.deepEqual(calls[0], ['cancel', { sessionId: 'chosen' }])
+  assert.equal(calls[1][1].sessionId, 'chosen')
+  assert.equal(calls[1][1].mode, 'queue')
+  assert.equal(calls[1][1].content[0].text, 'next step')
+  await assert.rejects(runPetSessionAction(controller, 'chosen', 'reply', '  '))
+  await assert.rejects(runPetSessionAction(controller, 'chosen', 'unknown'))
+  assert.equal(calls.length, 2)
+})
 import { protocolUri, parseProtocolUri } from '../src/protocol.js'
 import { migrateUiOverlay, pickUiFields, sanitizeUiPatch, UI_SCHEMA_VERSION } from '../src/persist.js'
-import { inboxPath } from '../src/inbox.js'
+import { cleanupWorkFiles, inboxPath } from '../src/inbox.js'
+
+test('startup cleanup removes only old orphan work files and preserves live owners and settings', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsh-work-cleanup-'))
+  const now = Date.now()
+  const old = new Date(now - 25 * 60 * 60 * 1000)
+  const fixture = (name, data = {}, age = old) => {
+    const path = join(directory, name)
+    writeFileSync(path, typeof data === 'string' ? data : JSON.stringify(data))
+    utimesSync(path, age, age)
+    return path
+  }
+  try {
+    const stale = [
+      fixture('pending-expired.json'),
+      fixture('pending-dead-owner.json', { ownerPid: 2147483647 }),
+      fixture('pending-corrupt.json', '{'),
+      fixture('pending-pet-visible-2147483647.json'),
+      fixture('pending-pet-9999.json.anchor.json'),
+      fixture('inbox-taking-3080-old.jsonl', ''),
+    ]
+    const retained = [
+      fixture('pending-recent.json', {}, new Date(now - 60 * 1000)),
+      fixture('pending-live-sticky.json', { ownerPid: process.pid, timeoutSec: 0 }),
+      fixture(`pending-pet-visible-${process.pid}.json`),
+      fixture('pending-pet-3080.json', { ownerPid: process.pid }),
+      fixture('pending-pet-3080.json.anchor.json'),
+      fixture('inbox-taking-3080-new.jsonl', '', new Date(now - 60 * 1000)),
+      fixture('inbox-3080.jsonl'),
+      fixture('pet-position.json'),
+      fixture('pet-settings.json'),
+      fixture('ui-focus.json'),
+      fixture('other.json'),
+    ]
+    mkdirSync(join(directory, 'pending-directory.json'))
+    assert.equal(cleanupWorkFiles(directory, now), stale.length)
+    stale.forEach((path) => assert.equal(existsSync(path), false, path))
+    retained.forEach((path) => assert.equal(existsSync(path), true, path))
+    assert.equal(existsSync(join(directory, 'pending-directory.json')), true)
+    assert.equal(cleanupWorkFiles(directory, now), 0)
+    assert.equal(cleanupWorkFiles(join(directory, 'missing'), now), 0)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('a closed native card deletes its file and can reopen a still-pending decision', () => {
+  const source = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8')
+  const start = source.indexOf('  const openChoiceWindow =')
+  const end = source.indexOf('  /** 预热', start)
+  assert.ok(start > 0 && end > start)
+  const record = { token: 'pending-question' }
+  const byToken = new Map([[record.token, record]])
+  const children = []
+  const files = new Map()
+  const context = {
+    process: { platform: 'win32' }, byToken, cfg: { notifyStyle: 'custom' }, ctx: {}, choiceShellPath: 'test-shell',
+    choiceWindowPath: () => 'test-card.ps1',
+    writePending: (token, data) => files.set(token, data),
+    removePending: (token) => files.delete(token),
+    spawn: () => {
+      const child = Object.assign(new EventEmitter(), { pid: children.length + 1, exitCode: null })
+      children.push(child)
+      return child
+    },
+  }
+  runInNewContext(source.slice(start, end) + '\nglobalThis.openCard = openChoiceWindow', context)
+  const data = { kind: 'question', questions: [{ id: 'q1' }] }
+  assert.equal(context.openCard(record.token, data), true)
+  assert.equal(files.get(record.token), data)
+  assert.equal(context.openCard(record.token), true)
+  assert.equal(children.length, 1, 'do not create duplicate windows for one token')
+  children[0].exitCode = 0
+  children[0].emit('exit')
+  assert.equal(files.has(record.token), false)
+  assert.equal(byToken.get(record.token), record, 'closing the card must not answer or expire the host decision')
+  assert.equal(context.openCard(record.token), true)
+  assert.equal(files.get(record.token), data, 'pet compose must recreate the file with the original questions')
+  assert.equal(children.length, 2)
+  children[1].emit('exit')
+  byToken.delete(record.token)
+  assert.equal(context.openCard(record.token), false, 'settled decisions must never recreate a card')
+})
 
 test('xmlEscape covers markup', () => {
   assert.equal(xmlEscape(`a&b<c>"'`), 'a&amp;b&lt;c&gt;&quot;&apos;')
@@ -305,6 +437,11 @@ if (process.platform === 'win32') {
     const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', script], { windowsHide: true, encoding: 'utf8' })
     assert.equal(result.status, 0, result.stderr || result.stdout)
   })
+  test('resident pet stays in place during notifications, publishes its anchor and exits without its host', () => {
+    const script = fileURLToPath(new URL('./pet-window.ps1', import.meta.url))
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-STA', '-NonInteractive', '-File', script], { windowsHide: true, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+  })
   test('findPwsh finds pwsh on PATH', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-attention-pwsh-'))
     try {
@@ -357,6 +494,14 @@ test('normalizeConfig parses and clamps cardOpacity', () => {
   assert.equal(publicConfig(normalizeConfig({ cardOpacity: 0.5 })).cardOpacity, 0.5)
 })
 
+test('pet scale is bounded, public, and accepted by persisted UI configuration', () => {
+  for (const [value, expected] of [[undefined, 1], ['bad', 1], ['1.25', 1.25], [0, 0.5], [9, 2], [Infinity, 1]]) {
+    assert.equal(normalizeConfig({ petScale: value }).petScale, expected)
+  }
+  assert.equal(publicConfig(normalizeConfig({ petScale: 1.5 })).petScale, 1.5)
+  assert.deepEqual(sanitizeUiPatch({ petScale: 1.5 }), { petScale: 1.5 })
+})
+
 test('normalizeConfig keeps sound off as empty string', () => {
   assert.equal(soundOf(''), '')
   assert.equal(soundOf(false), '')
@@ -379,9 +524,12 @@ test('normalizeConfig parses openSessionMode', () => {
 test('normalizeConfig parses notifyStyle', () => {
   assert.equal(notifyStyleOf('system'), 'system')
   assert.equal(notifyStyleOf('custom'), 'custom')
+  assert.equal(notifyStyleOf('pet'), 'pet')
   assert.equal(notifyStyleOf('other'), 'custom')
   assert.equal(normalizeConfig({}).notifyStyle, 'custom')
   assert.equal(normalizeConfig({ notifyStyle: 'system' }).notifyStyle, 'system')
+  assert.equal(normalizeConfig({ notifyStyle: 'pet' }).notifyStyle, 'pet')
+  assert.deepEqual(sanitizeUiPatch({ notifyStyle: 'pet' }), { notifyStyle: 'pet' })
 })
 
 test('normalizeConfig parses focusAfterReply', () => {
@@ -515,7 +663,6 @@ test('publicConfig exposes UI fields and soundEnabled', () => {
   assert.equal(Object.hasOwn(pub, 'webUrl'), false)
   assert.deepEqual(Object.keys(pickUiFields(cfg)).sort(), [
     'cardOpacity',
-    'enabled',
     'focusAfterReply',
     'hiddenReloadMs',
     'notifyApproval',
@@ -525,7 +672,71 @@ test('publicConfig exposes UI fields and soundEnabled', () => {
     'notifySubagentIdle',
     'notifyTimeoutSec',
     'openSessionMode',
+    'petScale',
     'settledMax',
     'sound',
   ])
 })
+
+test('plugin metadata exposes localized titles, descriptions and its settings bell', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)));
+  assert.equal(pkg.exports['./locale/*.json'], './locale/*.json');
+  assert.ok(pkg.files.includes('locale'));
+  for (const [lang, title] of [['zh', '提醒'], ['en', 'Attention']]) {
+    const metadata = JSON.parse(readFileSync(new URL(import.meta.resolve('dsh-attention/locale/' + lang + '.json'))));
+    assert.equal(metadata.meta.title, title);
+    assert.ok(metadata.meta.description.length > 20);
+  }
+  const icon = readFileSync(new URL('../' + pkg.icon, import.meta.url), 'utf8');
+  assert.match(icon, /viewBox="0 0 16 16"/);
+  assert.match(icon, /cx="11.6"/);
+});
+
+test('the plugin list owns the master switch, ignoring the legacy UI setting', () => {
+  assert.deepEqual(sanitizeUiPatch({ enabled: false }), {});
+  assert.equal(Object.hasOwn(pickUiFields(normalizeConfig({ enabled: false })), 'enabled'), false);
+});
+
+test('notification and pet titles use the injected title service and durable title events', () => {
+  const session = { id: '460a0566', snapshotEvents: () => [
+    { type: 'session/title', data: { title: '旧标题' } },
+    { type: 'session/title', data: { title: '#工作计划' } },
+  ] };
+  assert.equal(resolveTitle({ get: (item) => { assert.equal(item, session); return { title: '桌面兼容测试' }; } }, session), '桌面兼容测试');
+  assert.equal(resolveTitle(null, session), '#工作计划');
+  assert.equal(resolveTitle({ get: () => { throw Error('service unavailable'); } }, session), '#工作计划');
+  assert.equal(resolveTitle(null, { id: '460a0566', snapshotEvents: () => [] }), '');
+});
+
+test('host callbacks use the injected session store after the root context is inactive', () => {
+  const listeners = new Map();
+  const calls = [];
+  const session = { id: 'selected', header: {} };
+  const ctx = {
+    get sessions() { throw Error('without inject'); },
+    get sessionTitle() { throw Error('without inject'); },
+    inject(keys, callback) {
+      if (keys.length === 1 && keys[0] === 'sessions') callback({
+        sessions: { list: () => [], get: (id) => { calls.push(id); return session; } }, effect() {},
+      });
+      if (keys.length === 1 && keys[0] === 'sessionTitle') callback({ sessionTitle: { get: () => ({ title: '测试会话' }) }, effect() {} });
+    },
+    on(name, callback) { listeners.set(name, callback); }, effect() {},
+  };
+  apply(ctx);
+  listeners.get('api-session/status')('selected', true);
+  assert.deepEqual(calls, ['selected']);
+});
+
+test('viewing a completed pet message acknowledges only its current turn', () => {
+  const hidden = new Map();
+  const completed = { sessionId: 'seen', turnKey: 4, running: false, needsAnswer: false };
+  assert.equal(acknowledgeCompletedPetSession(completed, hidden), true);
+  assert.equal(hidden.get('seen'), 4);
+  assert.equal(hidden.has('other'), false);
+  assert.equal(hidden.get('seen') === 5, false, 'a new turn remains visible');
+  assert.equal(acknowledgeCompletedPetSession({ ...completed, turnKey: 5, running: true }, hidden), false);
+  assert.equal(acknowledgeCompletedPetSession({ ...completed, turnKey: 5, needsAnswer: true }, hidden), false);
+  assert.equal(acknowledgeCompletedPetSession(undefined, hidden), false);
+  assert.equal(hidden.get('seen'), 4);
+});
