@@ -1,7 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 $scriptsDir = Join-Path $PSScriptRoot '..\scripts'
 $choiceAst = $null
-foreach ($name in @('choice-window.ps1', 'protocol-handler.ps1', 'pet-window.ps1', 'pet-layout.ps1', 'pet-sessions.ps1', 'pet-animation.ps1')) {
+foreach ($name in @('choice-window.ps1', 'protocol-handler.ps1', 'window-focus.ps1', 'pet-window.ps1', 'pet-layout.ps1', 'pet-sessions.ps1', 'pet-animation.ps1')) {
   $tokens = $null
   $parseErrors = $null
   $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $scriptsDir $name), [ref]$tokens, [ref]$parseErrors)
@@ -21,12 +21,13 @@ function Start-Process {
   param($FilePath, $WindowStyle, $ArgumentList)
   $script:petLaunch = @{ target = $FilePath; args = @($ArgumentList); windowStyle = $WindowStyle }
 }
+function Focus-ExistingDsh($Data) { $script:petFocus = $Data; return $true }
 $env:ELECTRON_RUN_AS_NODE = '1'
 Open-PetHost ([pscustomobject]@{ platform = 'desktop' })
 if ($script:petLaunch.target -ne 'dsh://open' -or $env:ELECTRON_RUN_AS_NODE) { throw 'Pet click must restore Desktop without a session navigation request' }
 Open-PetHost ([pscustomobject]@{ platform = 'web'; webUrl = 'http://127.0.0.1:19387' })
-if ($script:petLaunch.args -notcontains '-ReuseOnly' -or $script:petLaunch.args -contains '-SessionId' -or $script:petLaunch.windowStyle -ne 'Hidden') {
-  throw 'Web/PWA pet clicks must only reuse the host window without changing its page'
+if ($script:petLaunch.target -ne 'dsh://open' -or $script:petFocus.webUrl -ne 'http://127.0.0.1:19387') {
+  throw 'Web/PWA pet clicks must activate in the click process without launching a helper or navigating'
 }
 $petTestDir = Join-Path ([IO.Path]::GetTempPath()) ('dsh-pet-test-' + [Guid]::NewGuid())
 [void](New-Item -ItemType Directory -Path $petTestDir)

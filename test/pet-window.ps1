@@ -90,6 +90,8 @@ try {
   if ([Math]::Abs($script:petAnchor.left - $expected.left) -gt 0.01) { throw 'Restart restoration must use the saved file, not the previous window position' }
   $script:petAnchor.left = -99999
   $script:petScreensJson = 'changed display layout'
+  $testState.updatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  [IO.File]::WriteAllText($stateFile, ($testState | ConvertTo-Json))
   & $tick
   if ([Math]::Abs($script:petAnchor.left - $expected.left) -gt 0.01) { throw 'Display topology changes must restore the pet into a visible work area without restarting' }
   if ($image.Cursor -ne $script:petGrabCursor -or $replyBox.Cursor -ne [Windows.Input.Cursors]::IBeam) { throw 'Pet hover and quick reply must have distinct grab and text cursors' }

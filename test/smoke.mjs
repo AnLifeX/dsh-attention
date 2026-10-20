@@ -432,6 +432,14 @@ test('findPwsh ignores missing candidates', () => {
 })
 
 if (process.platform === 'win32') {
+  test('Web/PWA activation restores, verifies foreground, and excludes unrelated windows', () => {
+    const script = fileURLToPath(new URL('./window-focus.ps1', import.meta.url))
+    for (const shell of ['powershell.exe', 'pwsh.exe']) {
+      const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-File', script], { windowsHide: true, encoding: 'utf8' })
+      if (shell === 'pwsh.exe' && result.error?.code === 'ENOENT') continue
+      assert.equal(result.status, 0, result.stderr || result.stdout)
+    }
+  })
   test('Windows scripts parse and route Desktop clicks to the official protocol', () => {
     const script = fileURLToPath(new URL('./windows.ps1', import.meta.url))
     const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', script], { windowsHide: true, encoding: 'utf8' })

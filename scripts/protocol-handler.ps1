@@ -1,7 +1,7 @@
 # Silent toast activation for dsh-attention.
 # URI is path-based (dsh-attention://do/TOKEN/ACTION) so cmd.exe cannot split on &.
 # Simple actions hit loopback GET /act. "compose" opens a small app-window to answer.
-# -FocusExisting -ReuseOnly: only AppActivate an already-open dsh window.
+# -FocusExisting -ReuseOnly: only restore an already-open dsh browser window.
 param(
   [Parameter(Position = 0)]
   [string]$Uri,
@@ -92,71 +92,10 @@ function Get-QueryMap([string]$Raw) {
   return $map
 }
 
-function Focus-ProcessWindow($Proc) {
-  if (-not $Proc -or $Proc.MainWindowHandle -eq [IntPtr]::Zero) { return $false }
-  try {
-    $wshell = New-Object -ComObject WScript.Shell
-    if ($wshell.AppActivate($Proc.Id)) { return $true }
-    if ($Proc.MainWindowTitle) { return [bool]$wshell.AppActivate($Proc.MainWindowTitle) }
-  } catch {}
-  return $false
-}
-
-function Get-CandidateWindows {
-  Get-Process | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }
-}
-
-function Get-ListenPort([string]$WebUrl) {
-  try {
-    $port = [int](([Uri]$WebUrl).Port)
-    if ($port -gt 0) { return $port }
-  } catch {}
-  return 3080
-}
+. (Join-Path $PSScriptRoot 'window-focus.ps1')
 
 function Focus-DshWindow([string]$WebUrl, [string]$OpenUrl, [switch]$ReuseOnly) {
-  $hostHint = '127.0.0.1:3080'
-  try { $hostHint = ([Uri]$WebUrl).Authority } catch {}
-  $port = Get-ListenPort $WebUrl
-  $titlePat = 'DeepSeek|Harness|\bdsh\b|' + [regex]::Escape($hostHint) + '|localhost:' + [regex]::Escape([string]$port)
-  $needles = New-Object System.Collections.ArrayList
-  try {
-    $focusFile = Join-Path $env:USERPROFILE '.dsh\dsh-attention-work\ui-focus.json'
-    if (Test-Path -LiteralPath $focusFile) {
-      $focus = Get-Content -LiteralPath $focusFile -Raw -Encoding UTF8 | ConvertFrom-Json
-      $text = ([string]$focus.title).Trim()
-      if ($text) { [void]$needles.Add($text) }
-    }
-  } catch {}
-
-  foreach ($proc in Get-CandidateWindows) {
-    $title = [string]$proc.MainWindowTitle
-    if (-not $title) { continue }
-    $hit = $false
-    foreach ($n in $needles) {
-      if ($n -and $title.Contains($n)) { $hit = $true; break }
-    }
-    if (-not $hit -and $title -match $titlePat) { $hit = $true }
-    if ($hit -and (Focus-ProcessWindow $proc)) { return $true }
-  }
-
-  try {
-    $conns = @(Get-NetTCPConnection -RemotePort $port -State Established -ErrorAction SilentlyContinue)
-    foreach ($c in $conns) {
-      $proc = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
-      if (-not $proc) { continue }
-      if ($proc.ProcessName -match '^(node|powershell|pwsh|cmd|wscript)$') { continue }
-      if (Focus-ProcessWindow $proc) { return $true }
-      try {
-        $parentId = (Get-CimInstance Win32_Process -Filter ("ProcessId=" + $c.OwningProcess) -ErrorAction SilentlyContinue).ParentProcessId
-        $parent = Get-Process -Id $parentId -ErrorAction SilentlyContinue
-        if ($parent -and $parent.ProcessName -notmatch '^(node|powershell|pwsh)$') {
-          if (Focus-ProcessWindow $parent) { return $true }
-        }
-      } catch {}
-    }
-  } catch {}
-
+  if (Focus-ExistingDsh ([pscustomobject]@{ webUrl = $WebUrl })) { return $true }
   if ($ReuseOnly) { return $false }
 
   try {

@@ -1,6 +1,6 @@
 {
   "name": "dsh-attention",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Notifications for approvals, questions and completed sessions, with interactive cards and a desktop pet.",
   "icon": "./assets/attention.svg",
   "keywords": [
@@ -69,6 +69,7 @@
     }
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=18",
+    "dsh": ">=0.1.2-alpha.3 <0.3.0-0"
   }
 }

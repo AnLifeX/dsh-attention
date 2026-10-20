@@ -1,6 +1,8 @@
 ﻿# Resident pet. Notification windows keep the existing answer/approval handlers.
 param([Parameter(Mandatory = $true)][string]$StateFile)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'window-focus.ps1')
+function Write-ActLog([string]$Line) { [Diagnostics.Debug]::WriteLine($Line) }
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -33,13 +35,8 @@ function Open-PetHost($State) {
     $env:ELECTRON_RUN_AS_NODE = $null
     Start-Process 'dsh://open' | Out-Null
   } else {
-    # Reuse the existing window without sending a session id or navigating its page.
-    $shell = (Get-Process -Id $PID).Path
-    Start-Process -FilePath $shell -WindowStyle Hidden -ArgumentList @(
-      '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
-      '-File', ('"' + (Join-Path $PSScriptRoot 'protocol-handler.ps1') + '"'),
-      '-FocusExisting', '-ReuseOnly', '-WebUrl', ('"' + [string]$State.webUrl + '"')
-    ) | Out-Null
+    # Keep the click's foreground permission in this process.
+    if (-not (Focus-ExistingDsh $State)) { throw 'Cannot activate the existing DSH browser window' }
   }
 }
 
