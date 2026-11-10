@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "提醒",
-    "description": "审批、提问和会话完成时提醒，支持可操作卡片、桌面宠物及浏览器休眠重连。"
+    "description": "审批、提问和会话完成时提醒，支持可操作卡片、桌面宠物及浏览器休眠重连。",
+    "detail": "locale/detail.zh.md"
   }
 }

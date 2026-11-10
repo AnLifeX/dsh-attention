@@ -694,6 +694,9 @@ test('plugin metadata exposes localized titles, descriptions and its settings be
     const metadata = JSON.parse(readFileSync(new URL(import.meta.resolve('dsh-attention/locale/' + lang + '.json'))));
     assert.equal(metadata.meta.title, title);
     assert.ok(metadata.meta.description.length > 20);
+    assert.equal(metadata.meta.detail, `locale/detail.${lang}.md`);
+    const detail = readFileSync(new URL('../' + metadata.meta.detail, import.meta.url), 'utf8');
+    assert.ok(detail.length > 100 && detail.length < 2000);
   }
   const icon = readFileSync(new URL('../' + pkg.icon, import.meta.url), 'utf8');
   assert.match(icon, /viewBox="0 0 16 16"/);
@@ -734,6 +737,31 @@ test('host callbacks use the injected session store after the root context is in
   apply(ctx);
   listeners.get('api-session/status')('selected', true);
   assert.deepEqual(calls, ['selected']);
+});
+
+test('question records preserve rc.5 wait identity and legacy call identity', () => {
+  const source = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+  const start = source.indexOf('  const answerQuestion =');
+  const end = source.indexOf('  const showIdleToast =', start);
+  assert.ok(start >= 0 && end > start);
+  const records = [];
+  const context = {
+    cfg: { enabled: true, notifyStyle: 'custom' },
+    sessionKinds: { rememberSession: () => 'primary' },
+    uiFocused: () => false, shouldNotifySession: () => true,
+    mintToken: () => 'token', titleOf: () => 'title', clip,
+    questionToastActions, decisionRecord: (record) => record,
+    remember: (record) => records.push(record),
+    choicePending: () => ({}), openChoiceWindow() {}, awaitAnswer() {},
+  };
+  runInNewContext(source.slice(start, end) + '\nglobalThis.ask = answerQuestion', context);
+  const request = { agent: { session: { id: 's1' } }, questions: [{ id: 'q1', question: 'Continue?' }] };
+  context.ask({ ...request, callId: 'old', wait: { callId: 'current', timed: true } });
+  context.ask({ ...request, callId: 'legacy' });
+  context.ask(request);
+  assert.equal(records[0].callId, 'current');
+  assert.equal(records[1].callId, 'legacy');
+  assert.equal(Object.hasOwn(records[2], 'callId'), false);
 });
 
 test('viewing a completed pet message acknowledges only its current turn', () => {

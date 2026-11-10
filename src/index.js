@@ -860,13 +860,14 @@ export function apply(ctx, config = {}) {
     const first = questions[0]
     const prompt = clip(first?.question ?? '需要你做选择', 80)
     const optionActions = questionToastActions(questions)
+    const callId = request.wait?.callId ?? request.callId
 
     const record = decisionRecord({
       kind: 'question',
       token,
       sessionId,
       questions,
-      ...(request.callId !== undefined ? { callId: request.callId } : {}),
+      ...(callId !== undefined ? { callId } : {}),
       optionActions,
       createdAt: Date.now(),
     }, request.signal)

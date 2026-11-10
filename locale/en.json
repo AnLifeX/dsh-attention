@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Attention",
-    "description": "Notifications for approvals, questions and completed sessions, with interactive cards, a desktop pet and browser wake reconnection."
+    "description": "Notifications for approvals, questions and completed sessions, with interactive cards, a desktop pet and browser wake reconnection.",
+    "detail": "locale/detail.en.md"
   }
 }
